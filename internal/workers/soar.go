@@ -5,12 +5,50 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	"goacloud/internal/models"
 	"goacloud/internal/services"
 )
+
+// ollamaSemaphore caps concurrent calls to the AI backend.
+//
+// Why a semaphore: when N alerts arrive in one polling tick, the previous
+// implementation launched N goroutines that each hit Ollama in parallel. On a
+// CPU-only inference host this saturates and every request hits its
+// `context deadline exceeded`. We cap to 2 concurrent inferences — enough to
+// keep latency hidden behind the Discord round-trip, low enough to never
+// overload the model.
+//
+// Adjust via env SOAR_AI_MAX_PARALLEL (default 2).
+var ollamaSemaphore chan struct{}
+
+// soarMinLevel filters Indexer alerts below this Wazuh level out of the
+// enrichment+notify pipeline. Curated rule.ids in
+// `wazuhIndexer.GetRecentAlertsWithMinLevel` still pass regardless of level
+// (auth/FIM/sudo/packages are interesting even at low level).
+//
+// Configured via env SOAR_MIN_LEVEL (default 10).
+var soarMinLevel int = 10
+
+func init() {
+	maxPar := 2
+	if v := os.Getenv("SOAR_AI_MAX_PARALLEL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxPar = n
+		}
+	}
+	ollamaSemaphore = make(chan struct{}, maxPar)
+
+	if v := os.Getenv("SOAR_MIN_LEVEL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			soarMinLevel = n
+		}
+	}
+}
 
 // StartSoarWorker starts the background worker that checks SOAR events and sends alerts.
 func StartSoarWorker(
@@ -46,12 +84,23 @@ func StartSoarWorker(
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
+	slog.Info("SOAR Worker config", "ai_max_parallel", cap(ollamaSemaphore), "min_level", soarMinLevel)
+
+	tickCount := 0
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("SOAR Worker stopped")
 			return
 		case <-ticker.C:
+			tickCount++
+			// Heartbeat every 5 ticks (= 5 minutes) so a silent worker
+			// is visible in `docker logs goacloud_app | grep heartbeat`.
+			// History: 2026-04-29 incident — worker died silently for
+			// 5 days, no one noticed because Discord just stopped firing.
+			if tickCount%5 == 0 {
+				slog.Info("SOAR Worker heartbeat", "ticks", tickCount, "running_for_min", tickCount)
+			}
 			loadSoarConfig(db, soarConfig)
 			checkSoarEvents(wazuhClient, wazuhIndexer, aiClient, discord, soarConfig, agentStatus, alertDedup)
 		}
@@ -155,7 +204,7 @@ func checkSoarEvents(
 
 	// 2. Check for Indexer Alerts
 	if wazuhIndexer != nil {
-		alerts, err := wazuhIndexer.GetRecentAlerts(2 * time.Minute)
+		alerts, err := wazuhIndexer.GetRecentAlertsWithMinLevel(2*time.Minute, soarMinLevel)
 		if err != nil {
 			slog.Error("SOAR Worker Error (Indexer)", "error", err)
 		} else {
@@ -164,60 +213,139 @@ func checkSoarEvents(
 				if _, loaded := alertDedup.Load(alertKey); !loaded {
 					alertDedup.Store(alertKey, time.Now())
 
-					var title, msg, severity string
-					shouldSend := false
-
-					switch alert.Rule.ID {
-					case "5402":
-						if cfg.AlertSudo {
-							shouldSend = true
-							title = "👑 Élévation de Privilèges"
-							msg = fmt.Sprintf("**Machine:** %s\n**Event:** Sudo to ROOT\n**Log:** `%s`", alert.Agent.Name, alert.FullLog)
-							severity = "critical"
-						}
-					case "550", "553", "554":
-						if cfg.AlertFIM {
-							shouldSend = true
-							title = "📝 Intégrité des Fichiers"
-							msg = fmt.Sprintf("**Machine:** %s\n**Fichier:** `%s`\n**Event:** %s", alert.Agent.Name, alert.Syscheck.Path, alert.Rule.Description)
-							severity = "high"
-						}
-					case "2902", "2903":
-						if cfg.AlertPackages {
-							shouldSend = true
-							title = "📦 Gestion Logicielle"
-							msg = fmt.Sprintf("**Machine:** %s\n**Changement:** %s\n**Log:** `%s`", alert.Agent.Name, alert.Rule.Description, alert.FullLog)
-							severity = "info"
-						}
-					default:
-						if cfg.AlertSSH {
-							shouldSend = true
-							title = "🛡️ Alerte Sécurité"
-							msg = fmt.Sprintf("**Machine:** %s\n**Event:** %s\n**Source IP:** %s", alert.Agent.Name, alert.Rule.Description, alert.Data.SrcIP)
-							severity = "medium"
-							if alert.Rule.ID == "5712" {
-								severity = "high"
-							}
-						}
+					title, msg, severity, shouldSend := classifyAlert(alert, cfg)
+					if !shouldSend {
+						continue
 					}
 
-					if shouldSend {
-						aiCtx := services.AIAlertContext{
-							Title:       title,
-							Description: msg,
-							AgentName:   alert.Agent.Name,
-							AgentIP:     alert.Agent.IP,
-							RuleID:      alert.Rule.ID,
-							RuleLevel:   alert.Rule.Level,
-							FullLog:     alert.FullLog,
-							SourceIP:    alert.Data.SrcIP,
-						}
-						go sendEnrichedAlert(aiCtx, severity, aiClient, discord)
+					aiCtx := services.AIAlertContext{
+						Title:           title,
+						Description:     msg,
+						AgentName:       alert.Agent.Name,
+						AgentIP:         alert.Agent.IP,
+						RuleID:          alert.Rule.ID,
+						RuleLevel:       alert.Rule.Level,
+						RuleGroups:      alert.Rule.Groups,
+						MitreIDs:        alert.Rule.MITRE.ID,
+						MitreTactics:    alert.Rule.MITRE.Tactic,
+						MitreTechniques: alert.Rule.MITRE.Technique,
+						FullLog:         alert.FullLog,
+						SourceIP:        alert.Data.SrcIP,
 					}
+					go sendEnrichedAlert(aiCtx, severity, aiClient, discord)
 				}
 			}
 		}
 	}
+}
+
+// classifyAlert turns a raw Wazuh alert into a Discord-ready (title, message,
+// severity) tuple. Returns shouldSend=false when the SoarConfig disables the
+// relevant category. Centralised so the noisy switch lives in one place.
+func classifyAlert(alert services.WazuhAlert, cfg models.SoarConfig) (title, msg, severity string, shouldSend bool) {
+	switch alert.Rule.ID {
+
+	// --- Correlation rules (Phase 3 — 2026-05-21) ---------------------
+	case "100500":
+		// SSH brute force probably successful (multiple failures then success
+		// same IP). Always critical: if the worker noticed this, a real
+		// attacker has a shell.
+		return "🚨 Brute Force SSH RÉUSSI",
+			fmt.Sprintf("**Machine:** %s\n**Source IP:** %s\n**Détail:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Data.SrcIP, alert.Rule.Description, alert.FullLog),
+			"critical", true
+
+	case "100510":
+		// 3+ attack-tagged alerts from same source in 30min. Strong active
+		// attack signal — keep critical.
+		return "⚔️ Attaque multi-étapes en cours",
+			fmt.Sprintf("**Machine cible:** %s\n**Source IP:** %s\n**Pattern:** %s",
+				alert.Agent.Name, alert.Data.SrcIP, alert.Rule.Description),
+			"critical", true
+
+	// --- Claude Code audit (Phase 2) ---------------------------------
+	case "100302":
+		return "🧹 Claude Code: rm en rafale",
+			fmt.Sprintf("**Machine:** %s\n**Détail:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Rule.Description, alert.FullLog),
+			"high", true
+	case "100303":
+		return "🔑 Claude Code: accès fichier sensible",
+			fmt.Sprintf("**Machine:** %s\n**Détail:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Rule.Description, alert.FullLog),
+			"critical", true
+	case "100304":
+		return "⚠️ Claude Code: exec depuis /tmp ou /dev/shm",
+			fmt.Sprintf("**Machine:** %s\n**Détail:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Rule.Description, alert.FullLog),
+			"critical", true
+	case "100305":
+		return "🛑 Claude Code: tool call bloqué",
+			fmt.Sprintf("**Machine:** %s\n**Détail:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Rule.Description, alert.FullLog),
+			"medium", true
+
+	// --- Suricata HIGH ----------------------------------------------
+	case "100202":
+		return "🦠 Suricata HIGH",
+			fmt.Sprintf("**Machine:** %s\n**Source IP:** %s\n**Signature:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Data.SrcIP, alert.Rule.Description, alert.FullLog),
+			"critical", true
+
+	// --- Existing categories ----------------------------------------
+	case "5402":
+		if !cfg.AlertSudo {
+			return "", "", "", false
+		}
+		return "👑 Élévation de Privilèges",
+			fmt.Sprintf("**Machine:** %s\n**Event:** Sudo to ROOT\n**Log:** `%s`",
+				alert.Agent.Name, alert.FullLog),
+			"critical", true
+	case "550", "553", "554":
+		if !cfg.AlertFIM {
+			return "", "", "", false
+		}
+		return "📝 Intégrité des Fichiers",
+			fmt.Sprintf("**Machine:** %s\n**Fichier:** `%s`\n**Event:** %s",
+				alert.Agent.Name, alert.Syscheck.Path, alert.Rule.Description),
+			"high", true
+	case "2902", "2903":
+		if !cfg.AlertPackages {
+			return "", "", "", false
+		}
+		return "📦 Gestion Logicielle",
+			fmt.Sprintf("**Machine:** %s\n**Changement:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Rule.Description, alert.FullLog),
+			"info", true
+	}
+
+	// --- Generic high-level fallback (rule.level >= soarMinLevel and
+	// not matched above). Caught because we added the `range
+	// rule.level >= minLevel` clause in GetRecentAlertsWithMinLevel.
+	if alert.Rule.Level >= 10 {
+		sev := "high"
+		if alert.Rule.Level >= 12 {
+			sev = "critical"
+		}
+		return fmt.Sprintf("🛡️ Alerte Wazuh niveau %d", alert.Rule.Level),
+			fmt.Sprintf("**Machine:** %s\n**Règle %s:** %s\n**Source IP:** %s\n**Log:** `%s`",
+				alert.Agent.Name, alert.Rule.ID, alert.Rule.Description, alert.Data.SrcIP, alert.FullLog),
+			sev, true
+	}
+
+	// SSH/auth catch-all (5710/5712/5716/5503 etc.) — only if alert.ssh enabled.
+	if cfg.AlertSSH {
+		sev := "medium"
+		if alert.Rule.ID == "5712" {
+			sev = "high"
+		}
+		return "🛡️ Alerte Sécurité",
+			fmt.Sprintf("**Machine:** %s\n**Event:** %s\n**Source IP:** %s",
+				alert.Agent.Name, alert.Rule.Description, alert.Data.SrcIP),
+			sev, true
+	}
+
+	return "", "", "", false
 }
 
 func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClient services.AIClient, discord *services.DiscordBot) {
@@ -228,15 +356,23 @@ func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClie
 	msg := alertCtx.Description
 
 	if aiClient != nil {
+		// Bounded concurrency: never more than cap(ollamaSemaphore) Ollama
+		// calls in flight. Without this, parallel goroutines saturate the
+		// CPU-only Ollama box and every call ends in "context deadline
+		// exceeded" — observed live on 2026-04-29.
+		ollamaSemaphore <- struct{}{}
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		analysis, err := aiClient.EnrichAlert(ctx, alertCtx)
 		cancel()
+		<-ollamaSemaphore
 		if err == nil {
 			msg += fmt.Sprintf("\n\n🤖 **Analyse AI:**\n%s", analysis)
 		} else {
-			slog.Error("AI Enrichment Failed", "error", err)
+			slog.Error("AI Enrichment Failed", "error", err, "rule_id", alertCtx.RuleID)
 		}
 	}
 
-	discord.SendAlert(alertCtx.Title, msg, severity)
+	if err := discord.SendAlert(alertCtx.Title, msg, severity); err != nil {
+		slog.Error("Discord SendAlert failed", "error", err, "rule_id", alertCtx.RuleID)
+	}
 }

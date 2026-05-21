@@ -15,14 +15,18 @@ import (
 
 // AIAlertContext holds metadata for AI-based alert analysis.
 type AIAlertContext struct {
-	Title       string
-	Description string
-	AgentName   string
-	AgentIP     string
-	RuleID      string
-	RuleLevel   int
-	FullLog     string
-	SourceIP    string
+	Title           string
+	Description     string
+	AgentName       string
+	AgentIP         string
+	RuleID          string
+	RuleLevel       int
+	RuleGroups      []string
+	MitreIDs        []string
+	MitreTactics    []string
+	MitreTechniques []string
+	FullLog         string
+	SourceIP        string
 }
 
 // AIClient defines the interface for AI providers.
@@ -68,34 +72,7 @@ func NewOllamaClient(url, model string) *OllamaClient {
 
 // EnrichAlert sends an alert to Ollama for analysis.
 func (c *OllamaClient) EnrichAlert(ctx context.Context, alertCtx AIAlertContext) (string, error) {
-	prompt := fmt.Sprintf(`Analyse l'alerte de sécurité suivante:
-
-CONTEXTE AGENT:
-- Machine: %s
-- IP: %s
-
-DÉTAILS ALERTE:
-- Titre: %s
-- Description: %s
-- Règle ID: %s (Niveau %d)
-- IP Source: %s
-- Log Brut: %s
-
-TA MISSION:
-Agis comme un expert SOC. Analyse ces données pour déterminer si c'est un faux positif ou une menace réelle.
-
-FORMAT DE RÉPONSE OBLIGATOIRE:
-**Analyse:** [Explication technique concise de ce qui s'est passé]
-**Gravité:** [Faible/Moyenne/Élevée/Critique]
-**Action:** [Action curative immédiate]
-
-Sois direct. Pas de bla-bla.`,
-		alertCtx.AgentName, alertCtx.AgentIP,
-		alertCtx.Title, alertCtx.Description,
-		alertCtx.RuleID, alertCtx.RuleLevel,
-		alertCtx.SourceIP,
-		alertCtx.FullLog,
-	)
+	prompt := buildSOCPrompt(alertCtx)
 
 	reqBody := ollamaRequest{
 		Model:  c.Model,
@@ -131,6 +108,68 @@ Sois direct. Pas de bla-bla.`,
 	}
 
 	return cleanAIResponse(ollamaResp.Response), nil
+}
+
+// buildSOCPrompt constructs a SOC analyst prompt with MITRE context (when
+// available) and a strict response format. The format is parseable enough to
+// surface FP probability + adjusted severity downstream if needed, while
+// staying readable as a Discord message.
+func buildSOCPrompt(c AIAlertContext) string {
+	mitre := ""
+	if len(c.MitreIDs) > 0 {
+		mitre = "\nMITRE ATT&CK:\n"
+		for i, id := range c.MitreIDs {
+			tactic := ""
+			if i < len(c.MitreTactics) {
+				tactic = c.MitreTactics[i]
+			}
+			tech := ""
+			if i < len(c.MitreTechniques) {
+				tech = c.MitreTechniques[i]
+			}
+			mitre += fmt.Sprintf("- %s — %s (%s)\n", id, tech, tactic)
+		}
+	}
+
+	groups := ""
+	if len(c.RuleGroups) > 0 {
+		groups = "\nGROUPES WAZUH: " + strings.Join(c.RuleGroups, ", ")
+	}
+
+	return fmt.Sprintf(`Tu es un expert SOC analyst en cybersécurité. Tu analyses une alerte d'un homelab personnel (HomeLab GoaCloud — segments VLAN, Wazuh SIEM, Suricata IDS). L'environnement est domestique : peu d'utilisateurs, beaucoup d'automatisations (Docker healthchecks, agents de monitoring, jobs cron). Beaucoup d'alertes sont des faux positifs liés à l'environnement.
+
+CONTEXTE AGENT:
+- Machine: %s
+- IP: %s
+
+DÉTAILS ALERTE:
+- Titre: %s
+- Description: %s
+- Règle ID: %s (Niveau Wazuh %d)
+- IP Source: %s%s%s
+- Log Brut: %s
+
+EXEMPLE de réponse attendue (référence, ne copie pas):
+**Analyse:** Tentative SSH depuis 198.51.100.5 (hors-LAN), 5 échecs puis 1 succès en 90s. Pattern brute force probable, surtout que l'IP ne mappe à aucun host connu.
+**MITRE:** T1110.001 (Brute Force: Password Guessing)
+**Faux positif:** Non (3/10)
+**Gravité ajustée:** 8/10
+**Action:** Vérifier les logs /var/log/auth.log de l'host cible, bloquer l'IP côté OPNsense (Firewall → Aliases), forcer rotation du mot de passe du compte ciblé.
+
+TA RÉPONSE (même format, en français, concise, ~5 lignes max):
+**Analyse:** [Que s'est-il passé concrètement ? Pourquoi cette alerte ?]
+**MITRE:** [Technique MITRE pertinente avec ID + nom court. Si déjà tagué dans l'alerte, confirme ou corrige.]
+**Faux positif:** [Oui/Non + probabilité 0-10 — 10 = sûr d'être un FP]
+**Gravité ajustée:** [1-10 en tenant compte du contexte homelab]
+**Action:** [Une action concrète, immédiate, exécutable. Pas de "surveillez", sois directif.]
+
+Sois direct, technique, pas de bla-bla.`,
+		c.AgentName, c.AgentIP,
+		c.Title, c.Description,
+		c.RuleID, c.RuleLevel,
+		c.SourceIP, mitre, groups,
+		c.FullLog,
+	)
 }
 
 func cleanAIResponse(response string) string {
@@ -187,18 +226,8 @@ func NewOpenAIClient(apiKey, model string) *OpenAIClient {
 
 // EnrichAlert sends an alert to OpenAI for analysis.
 func (c *OpenAIClient) EnrichAlert(ctx context.Context, alertCtx AIAlertContext) (string, error) {
-	systemPrompt := "Tu es un expert en cybersécurité (SOC Analyst). Ton but est d'analyser les alertes et de fournir des recommandations concises."
-	userPrompt := fmt.Sprintf(`Analyse l'alerte de sécurité suivante:
-Titre: %s
-Détails: %s
-Machine: %s (%s)
-Log: %s
-
-Format de réponse attendu:
-**Analyse:** [Résumé de la menace]
-**Gravité:** [Niveau estimé]
-**Action:** [Recommandation immédiate]
-`, alertCtx.Title, alertCtx.Description, alertCtx.AgentName, alertCtx.AgentIP, alertCtx.FullLog)
+	systemPrompt := "Tu es un expert SOC analyst. Tu réponds en français, concis, format strict."
+	userPrompt := buildSOCPrompt(alertCtx)
 
 	reqBody := openAIRequest{
 		Model: c.Model,

@@ -93,9 +93,15 @@ type IndexerAlertResponse struct {
 type WazuhAlert struct {
 	Timestamp string `json:"timestamp"`
 	Rule      struct {
-		ID          string `json:"id"`
-		Level       int    `json:"level"`
-		Description string `json:"description"`
+		ID          string   `json:"id"`
+		Level       int      `json:"level"`
+		Description string   `json:"description"`
+		Groups      []string `json:"groups"`
+		MITRE       struct {
+			ID        []string `json:"id"`
+			Tactic    []string `json:"tactic"`
+			Technique []string `json:"technique"`
+		} `json:"mitre"`
 	} `json:"rule"`
 	Agent struct {
 		ID   string `json:"id"`
@@ -278,7 +284,23 @@ func (w *WazuhIndexerClient) GetVulnSummary(agentIDs []string) (map[string]Agent
 }
 
 // GetRecentAlerts fetches recent security alerts from the Wazuh alerts index.
+//
+// Pulls alerts in two ways (OR):
+//  1. rule.id matches one of the curated SOAR-relevant rule IDs (auth,
+//     correlation custom 100500/100510, claude audit 100302-100305, FIM,
+//     packages, sudo, Suricata HIGH).
+//  2. OR rule.level >= minLevel (default 10) — captures every high-severity
+//     alert even if its rule.id is not in the curated list.
+//
+// This is what surfaces our newly added correlation rules (100500/100510)
+// and any custom Wazuh rule tagged with MITRE techniques.
 func (w *WazuhIndexerClient) GetRecentAlerts(duration time.Duration) ([]WazuhAlert, error) {
+	return w.GetRecentAlertsWithMinLevel(duration, 10)
+}
+
+// GetRecentAlertsWithMinLevel fetches recent alerts using the curated SOAR
+// rule IDs OR any alert whose rule.level >= minLevel.
+func (w *WazuhIndexerClient) GetRecentAlertsWithMinLevel(duration time.Duration, minLevel int) ([]WazuhAlert, error) {
 	startTime := time.Now().Add(-duration).Format(time.RFC3339)
 
 	query := map[string]interface{}{
@@ -289,15 +311,31 @@ func (w *WazuhIndexerClient) GetRecentAlerts(duration time.Duration) ([]WazuhAle
 					{"range": map[string]interface{}{
 						"timestamp": map[string]interface{}{"gte": startTime},
 					}},
+				},
+				"should": []map[string]interface{}{
 					{"terms": map[string]interface{}{
 						"rule.id": []string{
+							// SSH auth
 							"5716", "5710", "5712", "5503",
+							// Privilege escalation
 							"5402",
+							// File integrity
 							"550", "553", "554",
+							// Package mgmt
 							"2902", "2903",
+							// Suricata HIGH (custom)
+							"100202",
+							// Claude Code audit (custom, Phase 2)
+							"100302", "100303", "100304", "100305",
+							// Correlation rules (custom, Phase 3 — 2026-05-21)
+							"100500", "100510",
 						},
 					}},
+					{"range": map[string]interface{}{
+						"rule.level": map[string]interface{}{"gte": minLevel},
+					}},
 				},
+				"minimum_should_match": 1,
 			},
 		},
 		"sort": []map[string]interface{}{
