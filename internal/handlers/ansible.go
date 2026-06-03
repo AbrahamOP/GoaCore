@@ -96,6 +96,7 @@ func (h *Handler) HandleAnsibleRun(w http.ResponseWriter, r *http.Request) {
 		Playbook string `json:"playbook"`
 		VMID     int    `json:"vmid"`
 		KeyID    int    `json:"key_id"`
+		User     string `json:"user"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -138,7 +139,7 @@ func (h *Handler) HandleAnsibleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmdOut, cleanup, err := services.RunPlaybook(playbookPath, targetIP, sshKey.PrivateKey)
+	cmdOut, cleanup, err := services.RunPlaybook(playbookPath, targetIP, sshKey.PrivateKey, req.User)
 	if err != nil {
 		fmt.Fprintf(w, "Configuration Error: %v\n", err)
 		return

@@ -6,8 +6,13 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
+
+// remoteUserPattern restricts the SSH user to safe characters to prevent
+// command/argument injection via the --user flag.
+var remoteUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 
 // ListPlaybooks scans the given directory and returns a map of categories to playbook files.
 func ListPlaybooks(dir string) (map[string][]string, error) {
@@ -50,10 +55,18 @@ func ListPlaybooks(dir string) (map[string][]string, error) {
 
 // RunPlaybook executes an ansible-playbook command and returns a streaming reader.
 // The caller MUST call the returned cleanup function after consuming all output.
-func RunPlaybook(playbookPath string, targetIP string, privateKey string) (io.ReadCloser, func(), error) {
+func RunPlaybook(playbookPath string, targetIP string, privateKey string, remoteUser string) (io.ReadCloser, func(), error) {
 	// Validate IP to prevent command injection via inventory parameter
 	if ip := net.ParseIP(targetIP); ip == nil {
 		return nil, nil, fmt.Errorf("invalid target IP address: %s", targetIP)
+	}
+
+	// Default to root for backward compatibility, then validate to prevent injection.
+	if remoteUser == "" {
+		remoteUser = "root"
+	}
+	if !remoteUserPattern.MatchString(remoteUser) {
+		return nil, nil, fmt.Errorf("invalid remote user: %s", remoteUser)
 	}
 
 	tmpKey, err := os.CreateTemp("", "ansible-key-*")
@@ -76,7 +89,7 @@ func RunPlaybook(playbookPath string, targetIP string, privateKey string) (io.Re
 		"-i", fmt.Sprintf("%s,", targetIP),
 		playbookPath,
 		"--private-key", tmpKeyName,
-		"--user", "root",
+		"--user", remoteUser,
 		"--ssh-common-args", "-o StrictHostKeyChecking=accept-new",
 	)
 

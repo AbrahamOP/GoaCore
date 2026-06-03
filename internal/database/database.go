@@ -126,6 +126,7 @@ func Migrate(db *sql.DB) {
 			vmid INT NOT NULL,
 			key_id INT NOT NULL,
 			interval_minutes INT NOT NULL,
+			remote_user VARCHAR(50) NOT NULL DEFAULT 'root',
 			enabled BOOLEAN NOT NULL DEFAULT TRUE,
 			next_run DATETIME NOT NULL,
 			last_run DATETIME NULL,
