@@ -229,6 +229,11 @@
                                 {{end}}
                             </select>
                         </div>
+                        <div>
+                            <label class="block text-xs font-medium text-on-surface-variant mb-1">Utilisateur SSH</label>
+                            <input id="run-user" type="text" value="claude" placeholder="claude"
+                                class="themed w-full bg-transparent border border-outline rounded-xs px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary">
+                        </div>
                         <div class="flex items-end">
                             <button onclick="runPlaybook()"
                                 class="w-full bg-primary text-on-primary font-medium py-2 px-4 rounded-full transition-all h-[38px]">
@@ -318,6 +323,10 @@
                         <option value="{{.ID}}">{{.Name}}</option>
                         {{end}}
                     </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Utilisateur SSH</label>
+                    <input id="sched-user" type="text" value="claude" placeholder="claude" class="themed w-full bg-transparent border border-outline rounded-xs px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary">
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-on-surface-variant mb-1">Fréquence</label>
@@ -584,7 +593,8 @@
                     body: JSON.stringify({
                         playbook: playbook,
                         vmid: parseInt(vmid),
-                        key_id: parseInt(keyId)
+                        key_id: parseInt(keyId),
+                        user: document.getElementById('run-user').value
                     })
                 });
 
@@ -863,7 +873,7 @@
                         const rowOpacity = s.enabled ? '' : ' opacity-50';
                         return '<tr class="border-b border-outline-variant/50 hover:bg-surface-container-high' + rowOpacity + '">' +
                             '<td class="py-3 px-2 text-on-surface font-medium">' + s.playbook + '</td>' +
-                            '<td class="py-3 px-2 text-on-surface-variant">' + s.vm_name + ' (' + s.vmid + ')</td>' +
+                            '<td class="py-3 px-2 text-on-surface-variant">' + s.vm_name + ' (' + s.vmid + ')' + (s.remote_user ? ' <span class="text-xs opacity-70">@' + s.remote_user + '</span>' : '') + '</td>' +
                             '<td class="py-3 px-2 text-on-surface-variant">' + formatInterval(s.interval_minutes) + '</td>' +
                             '<td class="py-3 px-2">' + statusBadge(s.last_status) + '</td>' +
                             '<td class="py-3 px-2 text-on-surface-variant">' + formatDate(s.last_run) + '</td>' +
@@ -906,7 +916,7 @@
                 const res = await fetch('/api/ansible/schedules', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({playbook, vmid: parseInt(vmid), key_id: parseInt(keyId), interval_minutes: parseInt(interval)})
+                    body: JSON.stringify({playbook, vmid: parseInt(vmid), key_id: parseInt(keyId), interval_minutes: parseInt(interval), remote_user: document.getElementById('sched-user').value})
                 });
                 if (res.ok) {
                     closeScheduleModal();

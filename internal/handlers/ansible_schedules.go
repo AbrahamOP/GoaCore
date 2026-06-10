@@ -84,7 +84,7 @@ func (h *Handler) HandleAnsibleScheduleToggle(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) listSchedules(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(`SELECT s.id, s.playbook, s.vmid, COALESCE(v.name,'?'), s.key_id,
-		COALESCE(k.name,'?'), s.interval_minutes, s.enabled, s.next_run,
+		COALESCE(k.name,'?'), s.interval_minutes, s.remote_user, s.enabled, s.next_run,
 		s.last_run, s.last_status, COALESCE(s.last_output,''), s.created_by, s.created_at
 		FROM ansible_schedules s
 		LEFT JOIN vm_cache v ON v.vmid = s.vmid
@@ -102,7 +102,7 @@ func (h *Handler) listSchedules(w http.ResponseWriter, r *http.Request) {
 		var s models.AnsibleSchedule
 		var lastRun *time.Time
 		err := rows.Scan(&s.ID, &s.Playbook, &s.VMID, &s.VMName, &s.KeyID,
-			&s.KeyName, &s.IntervalMinutes, &s.Enabled, &s.NextRun,
+			&s.KeyName, &s.IntervalMinutes, &s.RemoteUser, &s.Enabled, &s.NextRun,
 			&lastRun, &s.LastStatus, &s.LastOutput, &s.CreatedBy, &s.CreatedAt)
 		if err != nil {
 			slog.Error("Scan schedule error", "error", err)
@@ -125,6 +125,7 @@ func (h *Handler) createSchedule(w http.ResponseWriter, r *http.Request) {
 		VMID            int    `json:"vmid"`
 		KeyID           int    `json:"key_id"`
 		IntervalMinutes int    `json:"interval_minutes"`
+		RemoteUser      string `json:"remote_user"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -147,10 +148,14 @@ func (h *Handler) createSchedule(w http.ResponseWriter, r *http.Request) {
 	session, _ := h.SessionStore.Get(r, "goacloud-session")
 	username, _ := session.Values["username"].(string)
 
+	if req.RemoteUser == "" {
+		req.RemoteUser = "claude"
+	}
+
 	nextRun := time.Now().Add(time.Duration(req.IntervalMinutes) * time.Minute)
 
-	_, err := h.DB.Exec(`INSERT INTO ansible_schedules (playbook, vmid, key_id, interval_minutes, next_run, created_by)
-		VALUES (?, ?, ?, ?, ?, ?)`, req.Playbook, req.VMID, req.KeyID, req.IntervalMinutes, nextRun, username)
+	_, err := h.DB.Exec(`INSERT INTO ansible_schedules (playbook, vmid, key_id, interval_minutes, remote_user, next_run, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, req.Playbook, req.VMID, req.KeyID, req.IntervalMinutes, req.RemoteUser, nextRun, username)
 	if err != nil {
 		slog.Error("Create schedule error", "error", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
