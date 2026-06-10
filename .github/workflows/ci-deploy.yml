@@ -70,6 +70,16 @@ jobs:
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
+      - uses: actions/checkout@v4
+
+      # Build the image on the shared Docker daemon BEFORE triggering Portainer.
+      # The Portainer stack uses `build: .` but its webhook runs `up -d` WITHOUT
+      # --build, so it would otherwise keep serving the stale image. Pre-building
+      # `goacloud-app` updates the image so the subsequent `up -d` recreates the
+      # container with the new code. Image name = <project>-<service> = goacloud-app.
+      - name: Build PROD image
+        run: docker build -t goacloud-app:latest .
+
       - name: Trigger Portainer (PROD)
         run: |
           curl -sk -X POST "${{ secrets.PORTAINER_WEBHOOK_URL_PROD }}" \
