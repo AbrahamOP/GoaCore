@@ -107,12 +107,17 @@ func executeScheduledPlaybook(db *sql.DB, sshService *services.SSHService, disco
 
 	// Read all output
 	var buf bytes.Buffer
-	io.Copy(&buf, cmdOut)
+	_, copyErr := io.Copy(&buf, cmdOut)
 	output := buf.String()
 
-	// Determine status from output
+	// Determine status from output. A read error means the captured output is
+	// partial, so we can't trust an absent "fatal:" — mark it as an error rather
+	// than reporting a possibly-failed run as success.
 	status := "success"
-	if strings.Contains(output, "fatal:") || strings.Contains(output, "UNREACHABLE!") {
+	if copyErr != nil {
+		status = "error"
+		output += fmt.Sprintf("\n[scheduler] error reading playbook output: %v", copyErr)
+	} else if strings.Contains(output, "fatal:") || strings.Contains(output, "UNREACHABLE!") {
 		status = "error"
 	}
 

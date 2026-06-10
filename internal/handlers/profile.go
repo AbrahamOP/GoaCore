@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"golang.org/x/crypto/bcrypt"
 	"goacloud/internal/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // HandleProfile renders the user profile page.

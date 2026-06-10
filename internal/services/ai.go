@@ -161,8 +161,8 @@ type OpenAIClient struct {
 }
 
 type openAIRequest struct {
-	Model    string           `json:"model"`
-	Messages []openAIMessage  `json:"messages"`
+	Model    string          `json:"model"`
+	Messages []openAIMessage `json:"messages"`
 }
 
 type openAIMessage struct {

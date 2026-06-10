@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
-	gossh "golang.org/x/crypto/ssh"
 	"goacloud/internal/models"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 var upgrader = websocket.Upgrader{
@@ -103,8 +104,8 @@ func (h *Handler) HandleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	config := &gossh.ClientConfig{
-		User: username,
-		Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)},
+		User:            username,
+		Auth:            []gossh.AuthMethod{gossh.PublicKeys(signer)},
 		HostKeyCallback: h.SSHService.SSHHostKeyCallback(ip),
 		Timeout:         5 * time.Second,
 	}
@@ -151,11 +152,19 @@ func (h *Handler) HandleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() { io.Copy(wsWriter{ws}, stdout) }()
-	go func() { io.Copy(wsWriter{ws}, stderr) }()
+	// gorilla/websocket forbids concurrent writers, so stdout and stderr share a
+	// single mutex-guarded writer. The WaitGroup lets us wait for both copies to
+	// drain before returning, so neither goroutine outlives the request.
+	writer := &wsWriter{conn: ws}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); io.Copy(writer, stdout) }()
+	go func() { defer wg.Done(); io.Copy(writer, stderr) }()
 
 	if err := session.Shell(); err != nil {
-		ws.WriteMessage(websocket.TextMessage, []byte("Error: Shell Start Failed"))
+		writer.WriteText([]byte("Error: Shell Start Failed"))
+		session.Close()
+		wg.Wait()
 		return
 	}
 
@@ -173,8 +182,7 @@ func (h *Handler) HandleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 		sMsg := string(msg)
 		if len(sMsg) > 7 && sMsg[:7] == "RESIZE:" {
 			var rows, cols int
-			fmt.Sscanf(sMsg, "RESIZE:%d:%d", &rows, &cols)
-			if rows > 0 && cols > 0 {
+			if _, err := fmt.Sscanf(sMsg, "RESIZE:%d:%d", &rows, &cols); err == nil && rows > 0 && cols > 0 {
 				session.WindowChange(rows, cols)
 			}
 			continue
@@ -184,13 +192,28 @@ func (h *Handler) HandleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+
+	// Closing the session unblocks the io.Copy goroutines (stdout/stderr hit EOF);
+	// wait for them so they can't write to the connection after we return.
+	session.Close()
+	wg.Wait()
 }
 
+// wsWriter serializes WebSocket writes from multiple goroutines.
 type wsWriter struct {
-	*websocket.Conn
+	conn *websocket.Conn
+	mu   sync.Mutex
 }
 
-func (w wsWriter) Write(p []byte) (n int, err error) {
-	err = w.Conn.WriteMessage(websocket.TextMessage, p)
-	return len(p), err
+func (w *wsWriter) Write(p []byte) (int, error) {
+	return w.WriteText(p)
+}
+
+func (w *wsWriter) WriteText(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.conn.WriteMessage(websocket.TextMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }

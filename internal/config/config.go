@@ -1,6 +1,10 @@
 package config
 
-import "os"
+import (
+	"fmt"
+	"net/url"
+	"os"
+)
 
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
@@ -17,8 +21,8 @@ type Config struct {
 	ProxmoxTokenSecret string
 
 	// Wazuh API
-	WazuhAPIURL  string
-	WazuhUser    string
+	WazuhAPIURL   string
+	WazuhUser     string
 	WazuhPassword string
 
 	// Wazuh Indexer
@@ -49,33 +53,33 @@ type Config struct {
 // Load reads configuration from environment variables with defaults.
 func Load() *Config {
 	cfg := &Config{
-		DBUser:             getEnv("DB_USER", "root"),
-		DBPass:             getEnv("DB_PASS", "root"),
-		DBHost:             getEnv("DB_HOST", "127.0.0.1:3306"),
-		DBName:             getEnv("DB_NAME", "goacloud"),
-		ProxmoxURL:         getEnv("PROXMOX_URL", ""),
-		ProxmoxNode:        getEnv("PROXMOX_NODE", "pve"),
-		ProxmoxTokenID:     getEnv("PROXMOX_TOKEN_ID", ""),
-		ProxmoxTokenSecret: getEnv("PROXMOX_TOKEN_SECRET", ""),
-		WazuhAPIURL:        getEnv("WAZUH_API_URL", ""),
-		WazuhUser:          getEnv("WAZUH_USER", ""),
-		WazuhPassword:      getEnv("WAZUH_PASSWORD", ""),
-		WazuhIndexerURL:    getEnv("WAZUH_INDEXER_URL", ""),
-		WazuhIndexerUser:   getEnv("WAZUH_INDEXER_USER", ""),
-		WazuhIndexerPass:   getEnv("WAZUH_INDEXER_PASSWORD", ""),
-		AIProvider:         getEnv("AI_PROVIDER", "ollama"),
-		AIURL:              getEnv("AI_URL", ""),
-		AIAPIKey:           getEnv("AI_API_KEY", ""),
-		AIModel:            getEnv("AI_MODEL", ""),
-		DiscordBotToken:    getEnv("DISCORD_BOT_TOKEN", ""),
-		DiscordChannelID:   getEnv("DISCORD_CHANNEL_ID", ""),
+		DBUser:                getEnv("DB_USER", "root"),
+		DBPass:                getEnv("DB_PASS", "root"),
+		DBHost:                getEnv("DB_HOST", "127.0.0.1:3306"),
+		DBName:                getEnv("DB_NAME", "goacloud"),
+		ProxmoxURL:            getEnv("PROXMOX_URL", ""),
+		ProxmoxNode:           getEnv("PROXMOX_NODE", "pve"),
+		ProxmoxTokenID:        getEnv("PROXMOX_TOKEN_ID", ""),
+		ProxmoxTokenSecret:    getEnv("PROXMOX_TOKEN_SECRET", ""),
+		WazuhAPIURL:           getEnv("WAZUH_API_URL", ""),
+		WazuhUser:             getEnv("WAZUH_USER", ""),
+		WazuhPassword:         getEnv("WAZUH_PASSWORD", ""),
+		WazuhIndexerURL:       getEnv("WAZUH_INDEXER_URL", ""),
+		WazuhIndexerUser:      getEnv("WAZUH_INDEXER_USER", ""),
+		WazuhIndexerPass:      getEnv("WAZUH_INDEXER_PASSWORD", ""),
+		AIProvider:            getEnv("AI_PROVIDER", "ollama"),
+		AIURL:                 getEnv("AI_URL", ""),
+		AIAPIKey:              getEnv("AI_API_KEY", ""),
+		AIModel:               getEnv("AI_MODEL", ""),
+		DiscordBotToken:       getEnv("DISCORD_BOT_TOKEN", ""),
+		DiscordChannelID:      getEnv("DISCORD_CHANNEL_ID", ""),
 		DiscordAuthChannel:    getEnv("DISCORD_AUTH_CHANNEL_ID", ""),
 		DiscordAnsibleChannel: getEnv("DISCORD_ANSIBLE_CHANNEL_ID", ""),
-		HTTPPort:           getEnv("PORT", "8080"),
-		HTTPSPort:          getEnv("HTTPS_PORT", "8443"),
-		SessionSecret:      getEnv("SESSION_SECRET", "super-secret-key-change-me"),
-		CookieSecure:       getEnv("COOKIE_SECURE", "true") != "false",
-		SkipTLSVerify:      getEnv("SKIP_TLS_VERIFY", "false") == "true",
+		HTTPPort:              getEnv("PORT", "8080"),
+		HTTPSPort:             getEnv("HTTPS_PORT", "8443"),
+		SessionSecret:         getEnv("SESSION_SECRET", "super-secret-key-change-me"),
+		CookieSecure:          getEnv("COOKIE_SECURE", "true") != "false",
+		SkipTLSVerify:         getEnv("SKIP_TLS_VERIFY", "false") == "true",
 	}
 
 	// Legacy Ollama support
@@ -87,6 +91,28 @@ func Load() *Config {
 	}
 
 	return cfg
+}
+
+// Validate checks that configured service URLs are well-formed. Catching a
+// malformed URL here (fail-fast at startup) avoids a nil-request panic later,
+// deep inside a worker, when http.NewRequest is handed a bad URL derived from
+// these values.
+func (c *Config) Validate() error {
+	for name, raw := range map[string]string{
+		"PROXMOX_URL":       c.ProxmoxURL,
+		"WAZUH_API_URL":     c.WazuhAPIURL,
+		"WAZUH_INDEXER_URL": c.WazuhIndexerURL,
+		"AI_URL":            c.AIURL,
+	} {
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("%s is not a valid absolute URL: %q", name, raw)
+		}
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {

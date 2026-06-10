@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"goacloud/internal/models"
@@ -50,12 +51,30 @@ type WazuhVulnListResponse struct {
 }
 
 // WazuhClient is an HTTP client for the Wazuh Manager API.
+// A single instance is shared between the Wazuh and SOAR workers and the HTTP
+// handlers, so the JWT token must be accessed under tokenMu.
 type WazuhClient struct {
 	BaseURL  string
 	User     string
 	Password string
-	Token    string
 	Client   *http.Client
+
+	tokenMu sync.RWMutex
+	token   string
+}
+
+// getToken returns the current JWT token under a read lock.
+func (w *WazuhClient) getToken() string {
+	w.tokenMu.RLock()
+	defer w.tokenMu.RUnlock()
+	return w.token
+}
+
+// setToken stores a new JWT token under a write lock.
+func (w *WazuhClient) setToken(t string) {
+	w.tokenMu.Lock()
+	w.token = t
+	w.tokenMu.Unlock()
 }
 
 // NewWazuhClient creates a new WazuhClient.
@@ -102,13 +121,13 @@ func (w *WazuhClient) Authenticate() error {
 		return err
 	}
 
-	w.Token = authResp.Data.Token
+	w.setToken(authResp.Data.Token)
 	return nil
 }
 
 // GetAgents returns the list of Wazuh agents.
 func (w *WazuhClient) GetAgents() ([]models.WazuhAgent, error) {
-	if w.Token == "" {
+	if w.getToken() == "" {
 		if err := w.Authenticate(); err != nil {
 			return nil, err
 		}
@@ -119,7 +138,7 @@ func (w *WazuhClient) GetAgents() ([]models.WazuhAgent, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", "Bearer "+w.Token)
+	req.Header.Add("Authorization", "Bearer "+w.getToken())
 
 	resp, err := w.Client.Do(req)
 	if err != nil {
@@ -129,13 +148,13 @@ func (w *WazuhClient) GetAgents() ([]models.WazuhAgent, error) {
 	if resp.StatusCode == 401 {
 		resp.Body.Close()
 		if err := w.Authenticate(); err != nil {
-			return nil, fmt.Errorf("Re-authentication failed: %v", err)
+			return nil, fmt.Errorf("re-authentication failed: %w", err)
 		}
 		req2, err2 := http.NewRequest("GET", reqURL, nil)
 		if err2 != nil {
 			return nil, err2
 		}
-		req2.Header.Add("Authorization", "Bearer "+w.Token)
+		req2.Header.Add("Authorization", "Bearer "+w.getToken())
 		resp, err = w.Client.Do(req2)
 		if err != nil {
 			return nil, err
@@ -158,8 +177,10 @@ func (w *WazuhClient) GetAgents() ([]models.WazuhAgent, error) {
 
 // GetAgentVulnerabilitiesList returns the vulnerability list for a given agent (legacy API).
 func (w *WazuhClient) GetAgentVulnerabilitiesList(agentID string) ([]models.WazuhVuln, error) {
-	if w.Token == "" {
-		w.Authenticate()
+	if w.getToken() == "" {
+		if err := w.Authenticate(); err != nil {
+			return nil, fmt.Errorf("authentication failed: %w", err)
+		}
 	}
 
 	apiURL := fmt.Sprintf("%s/vulnerability/%s?limit=100&sort=-severity", w.BaseURL, agentID)
@@ -167,7 +188,7 @@ func (w *WazuhClient) GetAgentVulnerabilitiesList(agentID string) ([]models.Wazu
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", "Bearer "+w.Token)
+	req.Header.Add("Authorization", "Bearer "+w.getToken())
 
 	resp, err := w.Client.Do(req)
 	if err != nil {
@@ -176,9 +197,14 @@ func (w *WazuhClient) GetAgentVulnerabilitiesList(agentID string) ([]models.Wazu
 
 	if resp.StatusCode == 401 {
 		resp.Body.Close()
-		w.Authenticate()
-		req2, _ := http.NewRequest("GET", apiURL, nil)
-		req2.Header.Add("Authorization", "Bearer "+w.Token)
+		if err := w.Authenticate(); err != nil {
+			return nil, fmt.Errorf("re-authentication failed: %w", err)
+		}
+		req2, err2 := http.NewRequest("GET", apiURL, nil)
+		if err2 != nil {
+			return nil, err2
+		}
+		req2.Header.Add("Authorization", "Bearer "+w.getToken())
 		resp, err = w.Client.Do(req2)
 		if err != nil {
 			return nil, err
