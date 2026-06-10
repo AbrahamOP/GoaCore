@@ -43,6 +43,10 @@ func StartSoarWorker(
 	// Start dedup cleaner
 	go StartAlertDedupCleaner(ctx, alertDedup)
 
+	// Track the last successful indexer poll so the lookback window can absorb
+	// transient outages instead of silently dropping alerts that occurred in the gap.
+	lastAlertPoll := time.Now().Add(-2 * time.Minute)
+
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
@@ -53,10 +57,14 @@ func StartSoarWorker(
 			return
 		case <-ticker.C:
 			loadSoarConfig(db, soarConfig)
-			checkSoarEvents(wazuhClient, wazuhIndexer, aiClient, discord, soarConfig, agentStatus, alertDedup)
+			checkSoarEvents(wazuhClient, wazuhIndexer, aiClient, discord, soarConfig, agentStatus, alertDedup, &lastAlertPoll)
 		}
 	}
 }
+
+// maxAlertLookback caps the indexer query window so a long outage cannot trigger
+// an unbounded (and expensive) range query when the worker recovers.
+const maxAlertLookback = 30 * time.Minute
 
 // StartAlertDedupCleaner periodically removes old alert dedup entries to prevent memory leaks.
 func StartAlertDedupCleaner(ctx context.Context, alertDedup *sync.Map) {
@@ -104,6 +112,7 @@ func checkSoarEvents(
 	soarConfig *models.SoarConfigState,
 	agentStatus *sync.Map,
 	alertDedup *sync.Map,
+	lastAlertPoll *time.Time,
 ) {
 	if wazuhClient == nil {
 		return
@@ -155,10 +164,21 @@ func checkSoarEvents(
 
 	// 2. Check for Indexer Alerts
 	if wazuhIndexer != nil {
-		alerts, err := wazuhIndexer.GetRecentAlerts(2 * time.Minute)
+		// Look back far enough to cover every cycle missed since the last
+		// successful poll (capped), so a transient indexer outage doesn't
+		// drop alerts. A 30s buffer guards against clock skew / ingest lag.
+		pollStart := time.Now()
+		lookback := time.Since(*lastAlertPoll) + 30*time.Second
+		if lookback > maxAlertLookback {
+			lookback = maxAlertLookback
+			slog.Warn("SOAR lookback capped — alerts older than the cap may have been missed", "cap", maxAlertLookback)
+		}
+
+		alerts, err := wazuhIndexer.GetRecentAlerts(lookback)
 		if err != nil {
 			slog.Error("SOAR Worker Error (Indexer)", "error", err)
 		} else {
+			*lastAlertPoll = pollStart
 			for _, alert := range alerts {
 				alertKey := alert.Agent.ID + alert.Rule.ID + alert.Timestamp
 				if _, loaded := alertDedup.Load(alertKey); !loaded {

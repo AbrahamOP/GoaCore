@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"golang.org/x/crypto/bcrypt"
 	"goacloud/internal/middleware"
 	"goacloud/internal/models"
 	"goacloud/internal/services"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // HandleUsers renders the user management page.

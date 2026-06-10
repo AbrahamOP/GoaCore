@@ -39,10 +39,10 @@ type ReportData struct {
 	VulnLow           int
 
 	// Platform
-	SSHKeysCount         int
-	UsersCount           int
-	AnsibleSchedulesN    int
-	AuditLogs7d          int
+	SSHKeysCount      int
+	UsersCount        int
+	AnsibleSchedulesN int
+	AuditLogs7d       int
 
 	// Derived
 	InfraHealth string // OK / Dégradé / Critique
@@ -87,8 +87,8 @@ func (h *Handler) HandleReport(w http.ResponseWriter, r *http.Request) {
 
 	// --- Wazuh agents ---
 	var (
-		agents          []models.WazuhAgent
-		active, offline int
+		agents               []models.WazuhAgent
+		active, offline      int
 		crit, high, med, low int
 	)
 	if h.WazuhCache != nil {

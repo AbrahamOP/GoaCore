@@ -137,8 +137,15 @@ func (h *Handler) createSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate the playbook path the same way one-shot runs do, so a schedule
+	// can't be used to smuggle a traversal payload past the worker.
+	if _, err := resolveSafePlaybookPath(req.Playbook); err != nil {
+		http.Error(w, "Invalid playbook path", http.StatusBadRequest)
+		return
+	}
+
 	// Get current user
-	session, _ := h.SessionStore.Get(r, "session")
+	session, _ := h.SessionStore.Get(r, "goacloud-session")
 	username, _ := session.Values["username"].(string)
 
 	if req.RemoteUser == "" {

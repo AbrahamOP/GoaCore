@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -10,11 +11,11 @@ import (
 )
 
 const (
-	csrfTokenLength  = 32
-	csrfSessionKey   = "csrf_token"
-	csrfCookieName   = "_csrf"
-	csrfHeaderName   = "X-CSRF-Token"
-	csrfFormField    = "csrf_token"
+	csrfTokenLength = 32
+	csrfSessionKey  = "csrf_token"
+	csrfCookieName  = "_csrf"
+	csrfHeaderName  = "X-CSRF-Token"
+	csrfFormField   = "csrf_token"
 )
 
 // CSRFProtection is a middleware that validates CSRF tokens on state-changing requests.
@@ -64,7 +65,7 @@ func CSRFProtection(store *sessions.CookieStore, cookieSecure bool) func(http.Ha
 					submitted = r.URL.Query().Get(csrfFormField)
 				}
 
-				if submitted == "" || submitted != token {
+				if submitted == "" || subtle.ConstantTimeCompare([]byte(submitted), []byte(token)) != 1 {
 					http.Error(w, "CSRF token invalid", http.StatusForbidden)
 					return
 				}

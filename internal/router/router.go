@@ -38,10 +38,10 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 	r.Post("/setup", h.HandleSetup)
 	r.Get("/login", h.HandleLogin)
 	r.Post("/login", h.HandleLogin)
-	r.Get("/logout", h.HandleLogout)
+	// Logout is POST-only (CSRF-protected) so it can't be forced via <img src=/logout>.
 	r.Post("/logout", h.HandleLogout)
 
-	// Authenticated routes
+	// Authenticated routes (any logged-in user, incl. Viewer — read-only surface)
 	r.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
 			return appMiddleware.AuthMiddleware(store, db, next)
@@ -52,70 +52,31 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Get("/add", h.HandleAddApp)
 		r.Post("/add", h.HandleAddApp)
 
-		// Proxmox
+		// Proxmox — read-only views
 		r.Get("/proxmox", h.HandleProxmox)
 		r.Get("/api/proxmox/stats", h.HandleProxmoxAPI)
 		r.Get("/api/proxmox/guest", h.HandleProxmoxGuestDetail)
 		r.Get("/api/proxmox/ips", h.HandleProxmoxIPs)
-		r.Post("/api/proxmox/guest/power", h.HandleProxmoxPowerAction)
 		r.Get("/api/proxmox/snapshots", h.HandleProxmoxSnapshots)
-		r.Post("/api/proxmox/snapshots", h.HandleProxmoxSnapshotCreate)
-		r.Delete("/api/proxmox/snapshots", h.HandleProxmoxSnapshotDelete)
-		r.Post("/api/proxmox/snapshots/rollback", h.HandleProxmoxSnapshotRollback)
-		r.Get("/api/proxmox/console", h.HandleProxmoxConsoleURL)
-		r.Post("/api/proxmox/guest/create", h.HandleProxmoxCreateGuest)
 		r.Get("/api/proxmox/metrics", h.HandleMetricsHistory)
 		r.Get("/api/events", h.HandleSSE)
 
-		// Wazuh & SOAR
+		// Wazuh & SOAR — read-only views
 		r.Get("/wazuh", h.HandleWazuh)
 		r.Get("/soar", h.HandleSoar)
-		r.Post("/api/soar/discord/test", h.HandleDiscordTest)
-		r.Post("/api/soar/ai/test", h.HandleAITest)
 		r.Get("/api/soar/config", h.HandleSoarConfig)
-		r.Post("/api/soar/config", h.HandleSoarConfig)
 		r.Get("/api/wazuh/vulns/{agentID}", h.HandleWazuhVulns)
 		r.Get("/api/wazuh/cve/summary", h.HandleWazuhCVESummary)
 		r.Get("/api/wazuh/agents/refresh", h.HandleWazuhAgentsRefresh)
 		r.Get("/api/wazuh/geo", h.HandleWazuhGeoData)
 
-		// SSH Manager
-		r.Get("/ssh", h.HandleSSHManager)
-		r.Post("/ssh", h.HandleSSHManager)
-		r.Get("/api/ssh/generate", h.HandleSSHManager)
-		r.Post("/api/ssh/generate", h.HandleSSHManager)
-		r.Post("/api/ssh/deploy", h.HandleSSHDeploy)
-		r.Delete("/api/ssh/delete", h.HandleSSHDelete)
-
-		// Console
-		r.Get("/console", h.HandleConsolePage)
-		r.Get("/api/ssh/ws", h.HandleSSHWebSocket)
-
-		// Ansible
-		r.Get("/ansible", h.HandleAnsible)
-		r.Post("/api/ansible/run", h.HandleAnsibleRun)
-		r.Post("/api/ansible/upload", h.HandleAnsibleUpload)
-		r.Get("/api/ansible/playbook", h.HandleAnsiblePlaybookGet)
-		r.Put("/api/ansible/playbook", h.HandleAnsiblePlaybookUpdate)
-		r.Get("/api/ansible/schedules", h.HandleAnsibleSchedules)
-		r.Post("/api/ansible/schedules", h.HandleAnsibleSchedules)
-		r.Delete("/api/ansible/schedules", h.HandleAnsibleScheduleDelete)
-		r.Post("/api/ansible/schedules/toggle", h.HandleAnsibleScheduleToggle)
-
-		// User Management
-		r.Get("/users", h.HandleUsers)
-		r.Get("/audit-logs", h.HandleAuditLogs)
-		r.Post("/api/users/add", h.HandleAddUser)
-		r.Post("/api/users/delete", h.HandleDeleteUser)
-		r.Post("/api/users/update", h.HandleUpdateUser)
-
-		// Profile
+		// Profile (self-service)
 		r.Get("/profile", h.HandleProfile)
 		r.Post("/api/profile/update", h.HandleUpdateProfile)
 		r.Post("/api/profile/github", h.HandleUpdateGithub)
 		r.Get("/api/me", h.HandleMe)
 
-		// MFA
+		// MFA (self-service)
 		r.Get("/api/mfa/setup", h.HandleSetupMFA)
 		r.Post("/api/mfa/verify", h.HandleVerifyMFA)
 		r.Post("/api/mfa/disable", h.HandleDisableMFA)
@@ -128,6 +89,61 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Post("/api/apps/update", h.HandleUpdateApp)
 		r.Post("/api/apps/reorder", h.HandleReorderApps)
 		r.Delete("/api/apps/delete", h.HandleDeleteApp)
+	})
+
+	// Admin-only routes (infra-sensitive: shell, VM control, keys, users, exec).
+	// Gated at the router level so a new sensitive handler can never be exposed
+	// to Viewers by forgetting an inline check.
+	r.Group(func(r chi.Router) {
+		r.Use(func(next http.Handler) http.Handler {
+			return appMiddleware.AuthMiddleware(store, db, next)
+		})
+		r.Use(func(next http.Handler) http.Handler {
+			return appMiddleware.AdminOnly(store, db, next)
+		})
+
+		// Proxmox — state-changing / sensitive
+		r.Post("/api/proxmox/guest/power", h.HandleProxmoxPowerAction)
+		r.Post("/api/proxmox/snapshots", h.HandleProxmoxSnapshotCreate)
+		r.Delete("/api/proxmox/snapshots", h.HandleProxmoxSnapshotDelete)
+		r.Post("/api/proxmox/snapshots/rollback", h.HandleProxmoxSnapshotRollback)
+		r.Get("/api/proxmox/console", h.HandleProxmoxConsoleURL)
+		r.Post("/api/proxmox/guest/create", h.HandleProxmoxCreateGuest)
+
+		// SOAR — configuration & outbound tests
+		r.Post("/api/soar/discord/test", h.HandleDiscordTest)
+		r.Post("/api/soar/ai/test", h.HandleAITest)
+		r.Post("/api/soar/config", h.HandleSoarConfig)
+
+		// SSH Manager (lists keys, generates/deploys/deletes)
+		r.Get("/ssh", h.HandleSSHManager)
+		r.Post("/ssh", h.HandleSSHManager)
+		r.Get("/api/ssh/generate", h.HandleSSHManager)
+		r.Post("/api/ssh/generate", h.HandleSSHManager)
+		r.Post("/api/ssh/deploy", h.HandleSSHDeploy)
+		r.Delete("/api/ssh/delete", h.HandleSSHDelete)
+
+		// Console — opens a root SSH shell on guests
+		r.Get("/console", h.HandleConsolePage)
+		r.Get("/api/ssh/ws", h.HandleSSHWebSocket)
+
+		// Ansible — executes playbooks on the fleet
+		r.Get("/ansible", h.HandleAnsible)
+		r.Post("/api/ansible/run", h.HandleAnsibleRun)
+		r.Post("/api/ansible/upload", h.HandleAnsibleUpload)
+		r.Get("/api/ansible/playbook", h.HandleAnsiblePlaybookGet)
+		r.Put("/api/ansible/playbook", h.HandleAnsiblePlaybookUpdate)
+		r.Get("/api/ansible/schedules", h.HandleAnsibleSchedules)
+		r.Post("/api/ansible/schedules", h.HandleAnsibleSchedules)
+		r.Delete("/api/ansible/schedules", h.HandleAnsibleScheduleDelete)
+		r.Post("/api/ansible/schedules/toggle", h.HandleAnsibleScheduleToggle)
+
+		// User management & audit trail
+		r.Get("/users", h.HandleUsers)
+		r.Get("/audit-logs", h.HandleAuditLogs)
+		r.Post("/api/users/add", h.HandleAddUser)
+		r.Post("/api/users/delete", h.HandleDeleteUser)
+		r.Post("/api/users/update", h.HandleUpdateUser)
 	})
 
 	return r

@@ -374,7 +374,7 @@ func (h *Handler) HandleProxmoxCreateGuest(w http.ResponseWriter, r *http.Reques
 	}
 
 	var body struct {
-		Type     string `json:"type"`     // "VM" or "CT"
+		Type     string `json:"type"` // "VM" or "CT"
 		VMID     int    `json:"vmid"`
 		Name     string `json:"name"`
 		Cores    int    `json:"cores"`

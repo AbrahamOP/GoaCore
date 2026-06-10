@@ -24,14 +24,14 @@ type VM struct {
 
 // ProxmoxStats holds node statistics and VM list.
 type ProxmoxStats struct {
-	CPU        int // Percentage
-	RAM        int // Percentage
-	RAMUsed    float64
-	RAMTotal   float64
-	RAMUsedStr string
+	CPU         int // Percentage
+	RAM         int // Percentage
+	RAMUsed     float64
+	RAMTotal    float64
+	RAMUsedStr  string
 	RAMTotalStr string
-	Storage    int // Percentage
-	VMs        []VM
+	Storage     int // Percentage
+	VMs         []VM
 }
 
 // PveNode is a Proxmox node entry.
