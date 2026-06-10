@@ -41,6 +41,10 @@ func main() {
 		slog.Error("SESSION_SECRET is the default value — refusing to start. Set a strong secret via SESSION_SECRET env var.")
 		os.Exit(1)
 	}
+	if err := cfg.Validate(); err != nil {
+		slog.Error("Invalid configuration — refusing to start", "error", err)
+		os.Exit(1)
+	}
 
 	// Database
 	db, err := database.Connect(cfg)

@@ -9,10 +9,15 @@ import (
 	"strings"
 
 	"github.com/pquerna/otp/totp"
-	"golang.org/x/crypto/bcrypt"
 	"goacloud/internal/middleware"
 	"goacloud/internal/services"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// dummyBcryptHash is a valid bcrypt hash of a random string, compared against
+// when the supplied username doesn't exist so login timing stays constant and
+// doesn't leak whether an account exists.
+const dummyBcryptHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
 // HandleLogin handles GET (show form) and POST (authenticate) for /login.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
@@ -48,16 +53,20 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.QueryRow("SELECT password_hash, mfa_enabled, mfa_secret FROM users WHERE username = ?", username).
 		Scan(&hashedPassword, &mfaEnabled, &mfaSecret)
 	if err != nil {
+		// Run a bcrypt compare against a dummy hash so an unknown user takes the
+		// same time as a wrong password, and return an identical message — no
+		// account enumeration by response content or timing.
+		bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(password))
 		n, blocked := h.RateLimiter.RecordFailure(clientIP)
 		go h.notifyLoginFailure(clientIP, username, "Utilisateur inconnu", n, blocked)
-		h.renderError(w, "login.html", "Utilisateur inconnu")
+		h.renderError(w, "login.html", "Identifiants invalides")
 		return
 	}
 
 	if err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
 		n, blocked := h.RateLimiter.RecordFailure(clientIP)
 		go h.notifyLoginFailure(clientIP, username, "Mot de passe incorrect", n, blocked)
-		h.renderError(w, "login.html", "Mot de passe incorrect")
+		h.renderError(w, "login.html", "Identifiants invalides")
 		return
 	}
 

@@ -26,13 +26,13 @@ import (
 
 // SSHService handles SSH key management and deployment.
 type SSHService struct {
-	db        *sql.DB
-	encKey    [32]byte
+	db                 *sql.DB
+	encKey             [32]byte
 	proxmoxURL         string
 	proxmoxTokenID     string
 	proxmoxTokenSecret string
 	proxmoxNode        string
-	skipTLS   bool
+	skipTLS            bool
 }
 
 // NewSSHService creates a new SSHService.
@@ -231,13 +231,15 @@ func (s *SSHService) SSHHostKeyCallback(ip string) gossh.HostKeyCallback {
 		var stored string
 		err := s.db.QueryRow("SELECT host_key FROM ssh_host_keys WHERE ip = ?", ip).Scan(&stored)
 		if err == sql.ErrNoRows {
+			// First contact: pin the key. If we can't persist it, refuse the
+			// connection rather than silently trusting an unverifiable host.
 			if _, err := s.db.Exec("INSERT INTO ssh_host_keys (ip, host_key) VALUES (?, ?)", ip, keyB64); err != nil {
-				return nil
+				return fmt.Errorf("impossible d'enregistrer la clé hôte pour %s: %w", ip, err)
 			}
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("erreur de lecture clé hôte: %v", err)
+			return fmt.Errorf("erreur de lecture clé hôte: %w", err)
 		}
 		if stored != keyB64 {
 			return fmt.Errorf("clé hôte SSH modifiée pour %s — possible attaque MITM", ip)

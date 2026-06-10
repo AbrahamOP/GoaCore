@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -92,5 +91,5 @@ func (rl *RateLimiter) Reset(ip string) {
 
 // BlockedMessage returns a user-facing message describing the block state.
 func BlockedMessage() string {
-	return fmt.Sprintf("Trop de tentatives de connexion. Réessayez dans 15 minutes.")
+	return "Trop de tentatives de connexion. Réessayez dans 15 minutes."
 }
