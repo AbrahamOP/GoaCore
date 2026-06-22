@@ -3,9 +3,20 @@ package services
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+// neutralizeDiscord defuses user-controlled text before it is embedded in a
+// Discord message. It strips backticks (which would break out of code spans /
+// fences) and disarms mentions (@everyone, @here, <@id>, <@&role>) by inserting a
+// zero-width space after each "@", so the client no longer parses them as pings.
+func neutralizeDiscord(s string) string {
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "@", "@​")
+	return s
+}
 
 // DiscordBot wraps a discordgo session for sending alerts.
 type DiscordBot struct {
@@ -118,6 +129,52 @@ func (d *DiscordBot) SendAnsibleAlert(playbook, vmName string, vmid int, status,
 	}
 
 	_, err := d.session.ChannelMessageSendEmbed(channelID, embed)
+	return err
+}
+
+// SendBackupAlert sends a backup execution notification embed to the main channel.
+// status: "started", "completed" or "failed".
+func (d *DiscordBot) SendBackupAlert(target string, vmid int, backupType, status, details string) error {
+	if d == nil || d.session == nil {
+		return fmt.Errorf("discord session not initialized")
+	}
+
+	color := 0x808080 // Grey — started
+	emoji := "⏳"
+	switch status {
+	case "completed":
+		color = 0x00ff00 // Green — success
+		emoji = "✅"
+	case "failed":
+		color = 0xff0000 // Red — failure
+		emoji = "❌"
+	}
+
+	// Neutralize untrusted fields (target name comes from Proxmox guest config,
+	// details may embed a Proxmox API error message) before building Markdown.
+	target = neutralizeDiscord(target)
+	details = neutralizeDiscord(details)
+
+	// Truncate details for Discord embed.
+	if len(details) > 1000 {
+		details = details[len(details)-1000:]
+	}
+
+	description := fmt.Sprintf("**Cible:** %s (%d)\n**Type:** `%s`\n**Statut:** %s %s", target, vmid, backupType, emoji, status)
+	if details != "" {
+		description += fmt.Sprintf("\n\n```\n%s\n```", details)
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "📦 Backup: " + target,
+		Description: description,
+		Color:       color,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GoaCloud Backup",
+		},
+	}
+
+	_, err := d.session.ChannelMessageSendEmbed(d.channelID, embed)
 	return err
 }
 

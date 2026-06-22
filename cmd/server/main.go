@@ -87,6 +87,14 @@ func main() {
 	proxmoxService := services.NewProxmoxService(db, cfg.SkipTLSVerify)
 	backupService := services.NewBackupService(db, proxmoxService, cfg)
 
+	// Reconcile zombie backup runs left "running" by a previous restart: their
+	// driving goroutine is gone, so they would otherwise stay stuck forever.
+	if n, err := backupService.ReconcileRunningRuns(); err != nil {
+		slog.Error("backup: reconcile running runs", "error", err)
+	} else if n > 0 {
+		slog.Info("backup: reconciled orphaned running runs", "count", n)
+	}
+
 	var wazuhClient *services.WazuhClient
 	if cfg.WazuhAPIURL != "" {
 		slog.Info("Configuring Wazuh Client", "url", cfg.WazuhAPIURL)
@@ -144,6 +152,9 @@ func main() {
 	} else {
 		slog.Info("Discord Bot not configured (missing token or channel)")
 	}
+
+	// Wire Discord notifications into the backup service (nil-safe).
+	backupService.SetDiscord(discordBot)
 
 	// Shared state
 	wazuhCache := &models.WazuhCache{}

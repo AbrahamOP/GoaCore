@@ -32,6 +32,7 @@ type BackupRun struct {
 	Source      string // "manual", "scheduler", "external" (discovered)
 	Message     string // error or info detail
 	CreatedBy   string
+	UPID        string // Proxmox task UPID (vzdump), for cross-referencing the task log
 	CreatedAt   time.Time
 }
 

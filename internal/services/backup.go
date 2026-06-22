@@ -2,10 +2,12 @@ package services
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"goacloud/internal/config"
@@ -15,16 +17,50 @@ import (
 // defaultBackupStorage is the Proxmox storage scanned for vzdump archives.
 const defaultBackupStorage = "local"
 
+// ErrBackupInProgress is returned when a backup is already running for a target.
+var ErrBackupInProgress = errors.New("a backup is already running for this target")
+
+// sanitizeName cleans a target name coming from an untrusted source (Proxmox
+// guest config / vm_cache, freely settable by a guest owner) before it is stored
+// or rendered. It whitelists [A-Za-z0-9 ._-], drops anything else, trims and
+// truncates to 64 characters, and falls back to "VM <vmid>" if empty.
+func sanitizeName(name string, vmid int) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z',
+			r >= 'a' && r <= 'z',
+			r >= '0' && r <= '9',
+			r == ' ', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+		}
+	}
+	cleaned := strings.TrimSpace(b.String())
+	if len(cleaned) > 64 {
+		cleaned = strings.TrimSpace(cleaned[:64])
+	}
+	if cleaned == "" {
+		return fmt.Sprintf("VM %d", vmid)
+	}
+	return cleaned
+}
+
 // BackupService orchestrates backup inventory, RPO evaluation and (later) restore testing.
 type BackupService struct {
 	db      *sql.DB
 	proxmox *ProxmoxService
 	cfg     *config.Config
+	discord *DiscordBot
 }
 
 // NewBackupService creates a BackupService.
 func NewBackupService(db *sql.DB, proxmox *ProxmoxService, cfg *config.Config) *BackupService {
 	return &BackupService{db: db, proxmox: proxmox, cfg: cfg}
+}
+
+// SetDiscord wires a Discord bot for backup notifications (optional; nil-safe).
+func (s *BackupService) SetDiscord(d *DiscordBot) {
+	s.discord = d
 }
 
 // Dashboard lists backups from Proxmox, auto-discovers targets, and returns each
@@ -63,10 +99,9 @@ func (s *BackupService) Dashboard() ([]models.BackupTargetView, models.BackupSum
 
 	// Auto-discovery: ensure a target row exists for each VMID that has a backup.
 	for vmid, e := range latest {
-		name := names[vmid]
-		if name == "" {
-			name = fmt.Sprintf("VM %d", vmid)
-		}
+		// The name comes from the Proxmox guest config (vm_cache), which a guest
+		// owner can freely set — sanitize before persisting.
+		name := sanitizeName(names[vmid], vmid)
 		if _, err := s.db.Exec(
 			`INSERT IGNORE INTO backup_targets (name, target_type, source_ref, storage) VALUES (?, ?, ?, ?)`,
 			name, e.Type, fmt.Sprintf("%d", vmid), e.Storage); err != nil {
@@ -115,6 +150,260 @@ func (s *BackupService) Dashboard() ([]models.BackupTargetView, models.BackupSum
 		summary.CoveragePct = summary.OK * 100 / summary.Total
 	}
 	return views, summary, nil
+}
+
+// backupPollInterval is how often the async worker polls the vzdump task status.
+const backupPollInterval = 5 * time.Second
+
+// backupTimeout caps how long a single on-demand backup may run before giving up.
+const backupTimeout = 30 * time.Minute
+
+// TriggerBackup records a manual backup run, launches an async vzdump, and returns
+// the new run ID immediately. The actual dump + polling + notification happen in a
+// recover-guarded goroutine so a failure can never panic the server.
+func (s *BackupService) TriggerBackup(targetID int, username string) (int, error) {
+	// Look up the target (vmid + type) before doing anything else.
+	var vmidStr, targetType, name, storage string
+	err := s.db.QueryRow(
+		`SELECT source_ref, target_type, name, storage FROM backup_targets WHERE id = ?`,
+		targetID).Scan(&vmidStr, &targetType, &name, &storage)
+	if err != nil {
+		return 0, fmt.Errorf("target not found: %w", err)
+	}
+	vmid, convErr := strconv.Atoi(vmidStr)
+	if convErr != nil || vmid <= 0 {
+		return 0, fmt.Errorf("target %d has no valid VMID (%q)", targetID, vmidStr)
+	}
+	// Defense in depth: rows predating sanitization (or edited directly) may hold
+	// an unsafe name. Sanitize again before it flows into Discord notifications.
+	name = sanitizeName(name, vmid)
+	if storage == "" {
+		storage = defaultBackupStorage
+	}
+
+	// Map the Proxmox guest type for the API path. Auto-discovered targets store
+	// "lxc"/"qemu" already; default to qemu if unknown.
+	pveType := "qemu"
+	if targetType == "lxc" {
+		pveType = "lxc"
+	}
+
+	// Anti-concurrency: refuse to start a second vzdump while one is still running
+	// for this target. The check + insert is atomic via INSERT ... SELECT ... WHERE
+	// NOT EXISTS, so two concurrent requests cannot both win the race.
+	now := time.Now()
+	res, err := s.db.Exec(
+		`INSERT INTO backup_runs (target_id, backup_type, status, started_at, source, created_by, message)
+		 SELECT ?, ?, 'running', ?, 'manual', ?, ?
+		 FROM DUAL
+		 WHERE NOT EXISTS (
+		     SELECT 1 FROM backup_runs WHERE target_id = ? AND status = 'running'
+		 )`,
+		targetID, "vzdump", now, username, "Sauvegarde à la demande lancée", targetID)
+	if err != nil {
+		return 0, fmt.Errorf("insert run: %w", err)
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		return 0, ErrBackupInProgress
+	}
+	runID64, _ := res.LastInsertId()
+	runID := int(runID64)
+
+	go s.runBackupAsync(runID, targetID, vmid, name, pveType, storage)
+
+	return runID, nil
+}
+
+// runBackupAsync performs the vzdump, polls until completion, updates the run row
+// and notifies Discord. It is recover-guarded so it can never crash the process.
+func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType, storage string) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("backup: panic in async worker recovered", "run_id", runID, "panic", rec)
+			s.finishRun(runID, "failed", 0, "", fmt.Sprintf("panic interne: %v", rec))
+			s.notifyBackup(name, vmid, "vzdump", "failed", fmt.Sprintf("panic interne: %v", rec))
+		}
+	}()
+
+	cfg := s.cfg
+	s.notifyBackup(name, vmid, "vzdump", "started", "")
+
+	upid, err := s.proxmox.CreateBackup(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
+		cfg.ProxmoxTokenSecret, pveType, strconv.Itoa(vmid), storage)
+	if err != nil {
+		msg := fmt.Sprintf("Échec du déclenchement vzdump: %v", err)
+		slog.Error("backup: create vzdump", "run_id", runID, "vmid", vmid, "error", err)
+		s.finishRun(runID, "failed", 0, "", msg)
+		s.notifyBackup(name, vmid, "vzdump", "failed", msg)
+		return
+	}
+	slog.Info("backup: vzdump started", "run_id", runID, "vmid", vmid, "upid", upid)
+	s.setRunUPID(runID, upid)
+
+	deadline := time.Now().Add(backupTimeout)
+	for {
+		if time.Now().After(deadline) {
+			msg := fmt.Sprintf("Timeout après %s (tâche %s toujours en cours)", backupTimeout, upid)
+			slog.Error("backup: vzdump timeout", "run_id", runID, "vmid", vmid, "upid", upid)
+			s.finishRun(runID, "failed", 0, "", msg)
+			s.notifyBackup(name, vmid, "vzdump", "failed", msg)
+			return
+		}
+		time.Sleep(backupPollInterval)
+
+		status, exitStatus, statErr := s.proxmox.GetTaskStatus(cfg.ProxmoxURL, cfg.ProxmoxNode,
+			cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, upid)
+		if statErr != nil {
+			// Transient polling error: log and keep trying until the deadline.
+			slog.Warn("backup: poll task status", "run_id", runID, "upid", upid, "error", statErr)
+			continue
+		}
+		if status == "running" {
+			continue
+		}
+		// status == "stopped" (or anything non-running): task finished.
+		if exitStatus == "OK" {
+			size, archive := s.lookupLatestArchive(vmid, storage)
+			msg := fmt.Sprintf("Sauvegarde terminée (tâche %s)", upid)
+			slog.Info("backup: vzdump completed", "run_id", runID, "vmid", vmid, "archive", archive, "size", size)
+			s.finishRun(runID, "completed", size, archive, msg)
+			s.notifyBackup(name, vmid, "vzdump", "completed", msg)
+		} else {
+			msg := fmt.Sprintf("vzdump a échoué: %s", exitStatus)
+			slog.Error("backup: vzdump failed", "run_id", runID, "vmid", vmid, "exit", exitStatus)
+			s.finishRun(runID, "failed", 0, "", msg)
+			s.notifyBackup(name, vmid, "vzdump", "failed", msg)
+		}
+		return
+	}
+}
+
+// lookupLatestArchive re-queries the storage for the most recent archive of vmid,
+// best-effort to fill size/path on a successful run. Errors are non-fatal.
+func (s *BackupService) lookupLatestArchive(vmid int, storage string) (int64, string) {
+	cfg := s.cfg
+	entries, err := s.proxmox.ListBackups(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
+		cfg.ProxmoxTokenSecret, storage)
+	if err != nil {
+		slog.Warn("backup: list archives after success", "vmid", vmid, "error", err)
+		return 0, ""
+	}
+	var best models.BackupEntry
+	found := false
+	for _, e := range entries {
+		if e.VMID != vmid {
+			continue
+		}
+		if !found || e.CTime.After(best.CTime) {
+			best = e
+			found = true
+		}
+	}
+	if !found {
+		return 0, ""
+	}
+	return best.SizeBytes, best.VolID
+}
+
+// setRunUPID persists the Proxmox task UPID on a run as soon as it is known.
+func (s *BackupService) setRunUPID(runID int, upid string) {
+	if _, err := s.db.Exec(`UPDATE backup_runs SET upid = ? WHERE id = ?`, upid, runID); err != nil {
+		slog.Error("backup: update run upid", "run_id", runID, "error", err)
+	}
+}
+
+// ReconcileRunningRuns marks any run still flagged "running" as failed. Such rows
+// are zombies: their driving goroutine was killed by a server restart, so they can
+// never reach a terminal state on their own. Returns the number of runs reconciled.
+func (s *BackupService) ReconcileRunningRuns() (int64, error) {
+	res, err := s.db.Exec(
+		`UPDATE backup_runs
+		 SET status = 'failed', completed_at = NOW(), message = 'Interrompu (redémarrage serveur)'
+		 WHERE status = 'running'`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// finishRun updates a backup_runs row to its terminal state.
+func (s *BackupService) finishRun(runID int, status string, size int64, archive, message string) {
+	_, err := s.db.Exec(
+		`UPDATE backup_runs
+		 SET status = ?, completed_at = ?, size_bytes = ?, archive_path = ?, message = ?
+		 WHERE id = ?`,
+		status, time.Now(), size, archive, message, runID)
+	if err != nil {
+		slog.Error("backup: update run", "run_id", runID, "error", err)
+	}
+}
+
+// notifyBackup sends a Discord backup alert if a bot is configured (nil-safe).
+// The actual network call runs in its own recover-guarded goroutine so a slow or
+// failing Discord can never sit in the critical path of finishRun / state polling.
+func (s *BackupService) notifyBackup(name string, vmid int, backupType, status, details string) {
+	if s.discord == nil || !s.discord.IsReady() {
+		return
+	}
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("backup: panic in Discord notification recovered", "panic", rec)
+			}
+		}()
+		if err := s.discord.SendBackupAlert(name, vmid, backupType, status, details); err != nil {
+			slog.Error("backup: Discord notification failed", "error", err)
+		}
+	}()
+}
+
+// RecentRuns returns recent backup runs, optionally filtered by target, newest first.
+func (s *BackupService) RecentRuns(targetID, limit int) ([]models.BackupRun, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var rows *sql.Rows
+	var err error
+	base := `SELECT id, target_id, backup_type, status, started_at, completed_at,
+		size_bytes, archive_path, source, message, created_by, upid, created_at
+		FROM backup_runs`
+	if targetID > 0 {
+		rows, err = s.db.Query(base+` WHERE target_id = ? ORDER BY id DESC LIMIT ?`, targetID, limit)
+	} else {
+		rows, err = s.db.Query(base+` ORDER BY id DESC LIMIT ?`, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var runs []models.BackupRun
+	for rows.Next() {
+		var run models.BackupRun
+		var started, completed sql.NullTime
+		var archive, message, createdBy, upid sql.NullString
+		var size sql.NullInt64
+		if err := rows.Scan(&run.ID, &run.TargetID, &run.BackupType, &run.Status,
+			&started, &completed, &size, &archive, &run.Source, &message,
+			&createdBy, &upid, &run.CreatedAt); err != nil {
+			slog.Error("backup: scan run", "error", err)
+			continue
+		}
+		if started.Valid {
+			run.StartedAt = &started.Time
+		}
+		if completed.Valid {
+			run.CompletedAt = &completed.Time
+		}
+		run.SizeBytes = size.Int64
+		run.ArchivePath = archive.String
+		run.Message = message.String
+		run.CreatedBy = createdBy.String
+		run.UPID = upid.String
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
 }
 
 // loadTargets returns all backup targets ordered by numeric source ref.

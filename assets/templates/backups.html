@@ -80,11 +80,12 @@
                                 <th class="px-6 py-3">Taille</th>
                                 <th class="px-6 py-3">Âge</th>
                                 <th class="px-6 py-3">RPO</th>
+                                <th class="px-6 py-3 text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-outline-variant">
                             {{range .Targets}}
-                            <tr class="hover:bg-outline-variant/30 transition">
+                            <tr class="hover:bg-outline-variant/30 transition" data-target-id="{{.Target.ID}}">
                                 <td class="px-6 py-4 font-medium text-on-surface">{{.Target.Name}}</td>
                                 <td class="px-6 py-4"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-xs border border-blue-500/20">{{.Target.TargetType}}</span></td>
                                 <td class="px-6 py-4 font-mono text-xs">{{.Target.SourceRef}}</td>
@@ -102,10 +103,20 @@
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant">Aucune</span>
                                     {{end}}
                                 </td>
+                                <td class="px-6 py-4 text-right whitespace-nowrap">
+                                    <span class="run-status text-xs text-on-surface-variant mr-2" data-run-status></span>
+                                    <button type="button"
+                                        class="backup-now-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-on-primary hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                        data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}"
+                                        title="Lancer un vzdump maintenant">
+                                        <svg class="w-4 h-4 btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                                        <span class="btn-label">Backup now</span>
+                                    </button>
+                                </td>
                             </tr>
                             {{else}}
                             <tr>
-                                <td colspan="7" class="px-6 py-12 text-center">
+                                <td colspan="8" class="px-6 py-12 text-center">
                                     <div class="flex flex-col items-center gap-3 text-on-surface-variant">
                                         <svg class="w-12 h-12 text-outline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
                                         <p class="text-sm">Aucune sauvegarde détectée sur le stockage Proxmox.</p>
@@ -122,9 +133,118 @@
         </div>
     </main>
 
+    <!-- Toast container -->
+    <div id="backup-toast" class="fixed bottom-6 right-6 z-50 hidden">
+        <div class="px-4 py-3 rounded-xl shadow-xl border text-sm font-medium" id="backup-toast-inner"></div>
+    </div>
+
     <script src="/static/theme.js"></script>
     <script src="/static/csrf.js"></script>
     <script src="/static/search.js"></script>
+
+    <script>
+        (function () {
+            const SPIN_SVG = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>';
+
+            function toast(msg, kind) {
+                const wrap = document.getElementById('backup-toast');
+                const inner = document.getElementById('backup-toast-inner');
+                if (!wrap || !inner) return;
+                inner.textContent = msg;
+                inner.className = 'px-4 py-3 rounded-xl shadow-xl border text-sm font-medium';
+                if (kind === 'error') {
+                    inner.classList.add('bg-red-500/10', 'text-red-400', 'border-red-500/30');
+                } else if (kind === 'success') {
+                    inner.classList.add('bg-green-500/10', 'text-green-400', 'border-green-500/30');
+                } else {
+                    inner.classList.add('bg-surface-container-high', 'text-on-surface', 'border-outline-variant');
+                }
+                wrap.classList.remove('hidden');
+                clearTimeout(wrap._t);
+                wrap._t = setTimeout(() => wrap.classList.add('hidden'), 5000);
+            }
+
+            const STATUS_LABEL = {
+                running: ['En cours…', 'text-orange-400'],
+                completed: ['✅ OK', 'text-green-400'],
+                failed: ['❌ Échec', 'text-red-400'],
+                pending: ['En attente', 'text-on-surface-variant']
+            };
+
+            // Refresh the last-run badge for every target row.
+            async function refreshRuns() {
+                try {
+                    const res = await fetch('/api/backups/runs', { headers: { 'Accept': 'application/json' } });
+                    if (!res.ok) return;
+                    const runs = await res.json() || [];
+                    // First (newest) run per target.
+                    const latest = {};
+                    runs.forEach(r => { if (latest[r.TargetID] === undefined) latest[r.TargetID] = r; });
+                    document.querySelectorAll('tr[data-target-id]').forEach(row => {
+                        const tid = parseInt(row.getAttribute('data-target-id'), 10);
+                        const cell = row.querySelector('[data-run-status]');
+                        if (!cell) return;
+                        const run = latest[tid];
+                        if (!run) { cell.textContent = ''; return; }
+                        const meta = STATUS_LABEL[run.Status] || [run.Status, 'text-on-surface-variant'];
+                        cell.textContent = meta[0];
+                        cell.className = 'run-status text-xs mr-2 ' + meta[1];
+                    });
+                    // Keep polling while anything is running.
+                    if (runs.some(r => r.Status === 'running' || r.Status === 'pending')) {
+                        scheduleRefresh(5000);
+                    }
+                } catch (e) { /* network blip — ignore */ }
+            }
+
+            let refreshTimer = null;
+            function scheduleRefresh(ms) {
+                clearTimeout(refreshTimer);
+                refreshTimer = setTimeout(refreshRuns, ms);
+            }
+
+            document.querySelectorAll('.backup-now-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const targetId = parseInt(btn.getAttribute('data-target-id'), 10);
+                    const name = btn.getAttribute('data-target-name') || ('#' + targetId);
+                    if (!targetId) return;
+                    const icon = btn.querySelector('.btn-icon');
+                    const label = btn.querySelector('.btn-label');
+                    const originalIcon = icon ? icon.outerHTML : '';
+                    btn.disabled = true;
+                    if (icon) icon.outerHTML = SPIN_SVG;
+                    if (label) label.textContent = 'Lancement…';
+                    try {
+                        // CSRF header is auto-injected by csrf.js (patched fetch).
+                        const res = await fetch('/api/backups/create', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ target_id: targetId })
+                        });
+                        if (!res.ok) {
+                            const txt = await res.text();
+                            throw new Error(txt || ('HTTP ' + res.status));
+                        }
+                        toast('Sauvegarde lancée pour ' + name, 'success');
+                        scheduleRefresh(2000);
+                    } catch (e) {
+                        toast('Échec : ' + e.message, 'error');
+                    } finally {
+                        // Re-enable after a short cooldown; status badge tracks progress.
+                        setTimeout(() => {
+                            btn.disabled = false;
+                            const freshIcon = btn.querySelector('svg');
+                            if (freshIcon && originalIcon) freshIcon.outerHTML = originalIcon;
+                            if (label) label.textContent = 'Backup now';
+                        }, 1500);
+                    }
+                });
+            });
+
+            refreshRuns();
+        })();
+    </script>
+
     {{template "sidebar-js" .}}
 </body>
 

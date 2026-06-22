@@ -124,6 +124,106 @@ func (p *ProxmoxService) ListBackups(rawURL, configuredNode, tokenID, secret, st
 	return entries, nil
 }
 
+// CreateBackup triggers a vzdump for a single guest and returns the task UPID.
+// pveType is informational here (vzdump is node-level); vmid/storage drive the dump.
+func (p *ProxmoxService) CreateBackup(rawURL, configuredNode, tokenID, secret, pveType, vmid, storage string) (string, error) {
+	baseURL := p.hostBaseURL(rawURL)
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: p.tlsConfig()},
+	}
+	targetNode := p.resolveNode(client, baseURL, configuredNode, tokenID, secret)
+
+	formData := url.Values{}
+	formData.Set("vmid", vmid)
+	formData.Set("storage", storage)
+	formData.Set("compress", "zstd")
+	formData.Set("mode", "snapshot")
+	formData.Set("remove", "0")
+
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/vzdump", baseURL, targetNode)
+	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
+	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var out struct {
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", err
+	}
+	if out.Data == "" {
+		return "", fmt.Errorf("vzdump did not return an UPID: %s", string(body))
+	}
+	return out.Data, nil
+}
+
+// GetTaskStatus returns the status ("running"/"stopped") and exit status ("OK" or
+// an error message) of a Proxmox task identified by its UPID.
+func (p *ProxmoxService) GetTaskStatus(rawURL, configuredNode, tokenID, secret, upid string) (status string, exitStatus string, err error) {
+	baseURL := p.hostBaseURL(rawURL)
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: p.tlsConfig()},
+	}
+
+	// A Proxmox UPID is "UPID:<node>:...". The task lives on the node that owns it,
+	// so poll there directly instead of re-resolving — otherwise, in a multi-node
+	// cluster, the create (node A) and poll (resolved node B) can diverge. Fall back
+	// to resolveNode only if the UPID cannot be parsed.
+	targetNode := nodeFromUPID(upid)
+	if targetNode == "" {
+		targetNode = p.resolveNode(client, baseURL, configuredNode, tokenID, secret)
+	}
+
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/tasks/%s/status",
+		baseURL, url.PathEscape(targetNode), url.PathEscape(upid))
+	req, _ := http.NewRequest("GET", apiURL, nil)
+	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var out struct {
+		Data struct {
+			Status     string `json:"status"`
+			ExitStatus string `json:"exitstatus"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", "", err
+	}
+	return out.Data.Status, out.Data.ExitStatus, nil
+}
+
+// nodeFromUPID extracts the node name from a Proxmox task UPID.
+// Format: "UPID:<node>:<pid>:<pstart>:<starttime>:<type>:<id>:<user>:".
+// Returns "" if the UPID is malformed.
+func nodeFromUPID(upid string) string {
+	parts := strings.Split(upid, ":")
+	if len(parts) >= 2 && parts[0] == "UPID" && parts[1] != "" {
+		return parts[1]
+	}
+	return ""
+}
+
 // parseVMIDFromVolID extracts the VMID from a vzdump volid as a fallback.
 // e.g. "local:backup/vzdump-lxc-110-2026_06_22-03_19_36.tar.zst" -> 110
 func parseVMIDFromVolID(volid string) int {
