@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    {{template "head-common" .}}
+    <title>GoaCloud - Sauvegardes</title>
+    <style>
+        body { font-family: 'Outfit', sans-serif; }
+    </style>
+</head>
+
+<body class="min-h-screen flex bg-surface text-on-surface">
+
+    {{template "mobile-overlay" .}}
+
+    {{template "sidebar" .}}
+
+    <!-- Main Content -->
+    <main class="flex-1 md:ml-64 overflow-y-auto bg-surface relative">
+        {{template "bubbles"}}
+
+        <!-- Content -->
+        <div class="px-8 py-10 relative z-10">
+
+            <!-- Header -->
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold text-on-surface mb-2">Gestion <span class="gradient-text">Sauvegardes</span></h2>
+                    <p class="text-on-surface-variant text-sm">Pilotez vos sauvegardes et vérifiez qu'elles sont réellement restaurables.</p>
+                </div>
+                <div class="flex items-center gap-3 flex-wrap">
+                    {{template "top-actions"}}
+                </div>
+            </div>
+
+            <!-- KPI Strip -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
+                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Cibles surveillées</p>
+                    <p class="text-2xl font-bold text-teal-400 mt-1">{{len .Targets}}</p>
+                </div>
+                <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
+                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Couverture RPO</p>
+                    <p class="text-2xl font-bold text-on-surface-variant mt-1" title="Disponible au Lot 2">—</p>
+                </div>
+                <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
+                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Dernier test réussi</p>
+                    <p class="text-2xl font-bold text-on-surface-variant mt-1" title="Disponible au Lot 4">—</p>
+                </div>
+                <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
+                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Sandbox</p>
+                    <p class="text-2xl font-bold text-primary mt-1">VLAN 99</p>
+                </div>
+            </div>
+
+            <!-- Targets table -->
+            <div class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden shadow-xl">
+                <div class="px-6 py-4 border-b border-outline-variant flex justify-between items-center"
+                     style="background: linear-gradient(135deg, rgba(20,184,166,0.10) 0%, var(--md-color-surface-container) 70%);">
+                    <h3 class="font-semibold text-on-surface flex items-center gap-2">
+                        <svg class="w-5 h-5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                        Cibles de sauvegarde
+                    </h3>
+                    <span class="text-xs bg-teal-500/10 text-teal-400 px-2 py-1 rounded-full border border-teal-500/30 font-semibold">{{len .Targets}}</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-on-surface-variant">
+                        <thead class="bg-surface-container-high text-xs uppercase font-medium text-on-surface-variant">
+                            <tr>
+                                <th class="px-6 py-3">Cible</th>
+                                <th class="px-6 py-3">Type</th>
+                                <th class="px-6 py-3">Réf.</th>
+                                <th class="px-6 py-3">Stockage</th>
+                                <th class="px-6 py-3">RPO</th>
+                                <th class="px-6 py-3">Healthcheck</th>
+                                <th class="px-6 py-3">État</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-outline-variant">
+                            {{range .Targets}}
+                            <tr class="hover:bg-outline-variant/30 transition">
+                                <td class="px-6 py-4 font-medium text-on-surface">{{.Name}}</td>
+                                <td class="px-6 py-4"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-xs border border-blue-500/20">{{.TargetType}}</span></td>
+                                <td class="px-6 py-4 font-mono text-xs">{{.SourceRef}}</td>
+                                <td class="px-6 py-4">{{.Storage}}</td>
+                                <td class="px-6 py-4">{{.RPOHours}}h</td>
+                                <td class="px-6 py-4">{{.HealthcheckType}}</td>
+                                <td class="px-6 py-4">
+                                    {{if .Enabled}}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-500/10 text-green-400 border border-green-500/20">Actif</span>
+                                    {{else}}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant">Inactif</span>
+                                    {{end}}
+                                </td>
+                            </tr>
+                            {{else}}
+                            <tr>
+                                <td colspan="7" class="px-6 py-12 text-center">
+                                    <div class="flex flex-col items-center gap-3 text-on-surface-variant">
+                                        <svg class="w-12 h-12 text-outline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                                        <p class="text-sm">Aucune cible de sauvegarde configurée.</p>
+                                        <p class="text-xs">La découverte automatique des VMs/LXC sauvegardées arrive au prochain lot.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script src="/static/theme.js"></script>
+    <script src="/static/csrf.js"></script>
+    <script src="/static/search.js"></script>
+    {{template "sidebar-js" .}}
+</body>
+
+</html>

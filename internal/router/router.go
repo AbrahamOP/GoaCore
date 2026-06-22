@@ -138,6 +138,9 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Delete("/api/ansible/schedules", h.HandleAnsibleScheduleDelete)
 		r.Post("/api/ansible/schedules/toggle", h.HandleAnsibleScheduleToggle)
 
+		// Backups — management & restore testing (triggers restore/destroy)
+		r.Get("/backups", h.HandleBackupPage)
+
 		// User management & audit trail
 		r.Get("/users", h.HandleUsers)
 		r.Get("/audit-logs", h.HandleAuditLogs)

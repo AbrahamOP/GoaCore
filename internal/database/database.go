@@ -135,6 +135,56 @@ func Migrate(db *sql.DB) {
 			created_by VARCHAR(50),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS backup_targets (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			target_type VARCHAR(10) NOT NULL DEFAULT 'qemu',
+			source_ref VARCHAR(50) NOT NULL,
+			storage VARCHAR(100) NOT NULL DEFAULT 'local',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			rpo_hours INT NOT NULL DEFAULT 24,
+			schedule_cron VARCHAR(100) NOT NULL DEFAULT '',
+			retention_count INT NOT NULL DEFAULT 3,
+			healthcheck_type VARCHAR(20) NOT NULL DEFAULT 'none',
+			healthcheck_target VARCHAR(255) NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE KEY uk_target (target_type, source_ref)
+		)`,
+		`CREATE TABLE IF NOT EXISTS backup_runs (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			target_id INT NOT NULL,
+			backup_type VARCHAR(20) NOT NULL DEFAULT 'vzdump',
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			started_at DATETIME NULL,
+			completed_at DATETIME NULL,
+			size_bytes BIGINT NOT NULL DEFAULT 0,
+			archive_path VARCHAR(512) NOT NULL DEFAULT '',
+			checksum VARCHAR(128) NOT NULL DEFAULT '',
+			source VARCHAR(20) NOT NULL DEFAULT 'manual',
+			message TEXT,
+			created_by VARCHAR(50),
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_bruns_target (target_id),
+			INDEX idx_bruns_status (status),
+			INDEX idx_bruns_created (created_at)
+		)`,
+		`CREATE TABLE IF NOT EXISTS restore_tests (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			target_id INT NOT NULL,
+			run_id INT NULL,
+			level VARCHAR(4) NOT NULL DEFAULT 'N1',
+			verdict VARCHAR(20) NOT NULL DEFAULT 'pending',
+			sandbox_vmid INT NOT NULL DEFAULT 0,
+			rto_seconds INT NOT NULL DEFAULT 0,
+			started_at DATETIME NULL,
+			completed_at DATETIME NULL,
+			logs TEXT,
+			triggered_by VARCHAR(20) NOT NULL DEFAULT 'manual',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_rtests_target (target_id),
+			INDEX idx_rtests_verdict (verdict),
+			INDEX idx_rtests_created (created_at)
+		)`,
 	}
 
 	for _, stmt := range coreTables {
