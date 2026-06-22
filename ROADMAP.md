@@ -91,7 +91,7 @@ GoaCloud est aujourd'hui un dashboard Go (chi / MySQL) très fonctionnel mais **
 
 | Jalon | Statut | Note |
 |-------|--------|------|
-| 0 — Audit global & nettoyage | 🔄 En cours | Démarré 2026-06-22 |
+| 0 — Audit global & nettoyage | ✅ Fait | Audit (0 secret, 0 phone-home backend) + nettoyage : CDN vendorisés, CSP durcie, storage/bridge configurables, user SSH générique |
 | 1 — Onboarding infra in-app | ⏳ À venir | Le déblocage self-service |
 | 2 — Dé-câbler + auto-détection | ⏳ À venir | |
 | 3 — Canal & destinations self-service | ⏳ À venir | |
