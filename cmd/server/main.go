@@ -128,7 +128,7 @@ func main() {
 
 	var aiClient services.AIClient
 	if cfg.AIURL != "" || cfg.AIAPIKey != "" || cfg.AIProvider == "ollama" {
-		aiClient = services.NewAIClient(cfg.AIProvider, cfg.AIURL, cfg.AIAPIKey, cfg.AIModel)
+		aiClient = services.NewAIClient(cfg.AIProvider, cfg.AIURL, cfg.AIAPIKey, cfg.AIModel, cfg.OpenAIBaseURL)
 		if aiClient != nil {
 			slog.Info("AI Client configured", "provider", cfg.AIProvider, "model", cfg.AIModel)
 		}

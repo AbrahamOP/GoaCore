@@ -3,8 +3,8 @@ self.addEventListener('push', function(event) {
     event.waitUntil(
         self.registration.showNotification(data.title, {
             body: data.body,
-            icon: 'https://img.icons8.com/dusk/64/server.png',
-            badge: 'https://img.icons8.com/dusk/64/server.png',
+            icon: '/static/favicon.png',
+            badge: '/static/favicon.png',
             tag: data.tag || 'goacloud',
         })
     );

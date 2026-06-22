@@ -45,6 +45,30 @@ type PveNodesList struct {
 	Data []PveNode `json:"data"`
 }
 
+// PveStorage represents a storage entry from GET /nodes/{node}/storage.
+type PveStorage struct {
+	Storage string `json:"storage"`
+	Content string `json:"content"` // comma-separated, e.g. "images,rootdir"
+	Active  int    `json:"active"`
+	Enabled int    `json:"enabled"`
+}
+
+// PveStorageList is the response from the Proxmox storage endpoint.
+type PveStorageList struct {
+	Data []PveStorage `json:"data"`
+}
+
+// PveNetwork represents a network entry from GET /nodes/{node}/network.
+type PveNetwork struct {
+	Iface string `json:"iface"`
+	Type  string `json:"type"` // "bridge", "eth", "bond", ...
+}
+
+// PveNetworkList is the response from the Proxmox network endpoint.
+type PveNetworkList struct {
+	Data []PveNetwork `json:"data"`
+}
+
 // PveNodeStatus holds node status data from the Proxmox API.
 type PveNodeStatus struct {
 	Data struct {

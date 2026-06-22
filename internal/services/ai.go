@@ -153,11 +153,13 @@ func cleanAIResponse(response string) string {
 
 // --- OpenAI Implementation ---
 
-// OpenAIClient is an AI client backed by OpenAI.
+// OpenAIClient is an AI client backed by OpenAI (or any OpenAI-compatible,
+// self-hosted endpoint via BaseURL).
 type OpenAIClient struct {
-	APIKey string
-	Model  string
-	Client *http.Client
+	APIKey  string
+	Model   string
+	BaseURL string // e.g. "https://api.openai.com/v1"
+	Client  *http.Client
 }
 
 type openAIRequest struct {
@@ -176,12 +178,18 @@ type openAIResponse struct {
 	} `json:"choices"`
 }
 
-// NewOpenAIClient creates a new OpenAI client.
-func NewOpenAIClient(apiKey, model string) *OpenAIClient {
+// NewOpenAIClient creates a new OpenAI client. baseURL may be empty, in which
+// case the public OpenAI endpoint is used; pass a custom value to target an
+// OpenAI-compatible, self-hosted endpoint.
+func NewOpenAIClient(apiKey, model, baseURL string) *OpenAIClient {
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
 	return &OpenAIClient{
-		APIKey: apiKey,
-		Model:  model,
-		Client: &http.Client{Timeout: 30 * time.Second},
+		APIKey:  apiKey,
+		Model:   model,
+		BaseURL: strings.TrimRight(baseURL, "/"),
+		Client:  &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -213,7 +221,7 @@ Format de réponse attendu:
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", err
 	}
@@ -245,8 +253,9 @@ Format de réponse attendu:
 
 // --- Factory ---
 
-// NewAIClient creates an AIClient based on the provider name.
-func NewAIClient(provider, url, apiKey, model string) AIClient {
+// NewAIClient creates an AIClient based on the provider name. openaiBaseURL is
+// only used for the "openai" provider and may be empty (public OpenAI endpoint).
+func NewAIClient(provider, url, apiKey, model, openaiBaseURL string) AIClient {
 	slog.Info("Initializing AI Client", "provider", provider, "model", model)
 
 	switch strings.ToLower(provider) {
@@ -258,7 +267,7 @@ func NewAIClient(provider, url, apiKey, model string) AIClient {
 		if model == "" {
 			model = "gpt-3.5-turbo"
 		}
-		return NewOpenAIClient(apiKey, model)
+		return NewOpenAIClient(apiKey, model, openaiBaseURL)
 
 	case "ollama":
 		if url == "" {

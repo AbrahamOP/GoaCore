@@ -76,8 +76,8 @@ func (h *Handler) HandleDiscordTest(w http.ResponseWriter, r *http.Request) {
 		Description: "Ceci est un test depuis GoaCloud SOAR avec analyse AI.",
 		AgentName:   "Test-Server",
 		AgentIP:     "127.0.0.1",
-		FullLog:     "Jan 01 12:00:00 test-server sshd[123]: Failed password for invalid user admin from 192.168.1.50 port 22 ssh2",
-		SourceIP:    "192.168.1.50",
+		FullLog:     "Jan 01 12:00:00 test-server sshd[123]: Failed password for invalid user admin from 203.0.113.50 port 22 ssh2",
+		SourceIP:    "203.0.113.50",
 		RuleID:      "5716",
 		RuleLevel:   5,
 	}

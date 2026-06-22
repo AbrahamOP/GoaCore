@@ -149,7 +149,7 @@ func (h *Handler) createSchedule(w http.ResponseWriter, r *http.Request) {
 	username, _ := session.Values["username"].(string)
 
 	if req.RemoteUser == "" {
-		req.RemoteUser = "claude"
+		req.RemoteUser = "root"
 	}
 
 	nextRun := time.Now().Add(time.Duration(req.IntervalMinutes) * time.Minute)

@@ -66,7 +66,7 @@ function sendLocalNotif(title, body) {
     if (Notification.permission === 'granted') {
         new Notification(title, {
             body: body,
-            icon: 'https://img.icons8.com/dusk/64/server.png',
+            icon: '/static/favicon.png',
         });
     }
 }

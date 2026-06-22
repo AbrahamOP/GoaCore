@@ -406,10 +406,10 @@ func (h *Handler) HandleProxmoxCreateGuest(w http.ResponseWriter, r *http.Reques
 	var err error
 	if body.Type == "CT" {
 		err = h.Proxmox.CreateCT(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret,
-			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize, body.Template)
+			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize, body.Template, cfg.ProxmoxStorage, cfg.ProxmoxBridge)
 	} else {
 		err = h.Proxmox.CreateVM(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret,
-			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize)
+			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize, cfg.ProxmoxStorage, cfg.ProxmoxBridge)
 	}
 
 	if err != nil {

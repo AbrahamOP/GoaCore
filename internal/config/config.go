@@ -20,6 +20,10 @@ type Config struct {
 	ProxmoxNode        string
 	ProxmoxTokenID     string
 	ProxmoxTokenSecret string
+	// Storage and bridge used when creating VMs/CTs. Empty = auto-detect via the
+	// Proxmox API (first active storage supporting images/rootfs, first bridge).
+	ProxmoxStorage string
+	ProxmoxBridge  string
 
 	// Wazuh API
 	WazuhAPIURL   string
@@ -36,6 +40,8 @@ type Config struct {
 	AIURL      string
 	AIAPIKey   string
 	AIModel    string
+	// OpenAIBaseURL targets an OpenAI-compatible endpoint (self-hosted/sovereign).
+	OpenAIBaseURL string
 
 	// Discord
 	DiscordBotToken       string
@@ -63,6 +69,8 @@ type Config struct {
 // Load reads configuration from environment variables with defaults.
 func Load() *Config {
 	cfg := &Config{
+		// DB defaults are dev-only conveniences; production deployments inject
+		// DB_USER/DB_PASS via the compose/env file (see docker-compose-dev.yml).
 		DBUser:                getEnv("DB_USER", "root"),
 		DBPass:                getEnv("DB_PASS", "root"),
 		DBHost:                getEnv("DB_HOST", "127.0.0.1:3306"),
@@ -71,6 +79,8 @@ func Load() *Config {
 		ProxmoxNode:           getEnv("PROXMOX_NODE", "pve"),
 		ProxmoxTokenID:        getEnv("PROXMOX_TOKEN_ID", ""),
 		ProxmoxTokenSecret:    getEnv("PROXMOX_TOKEN_SECRET", ""),
+		ProxmoxStorage:        getEnv("PROXMOX_STORAGE", ""),
+		ProxmoxBridge:         getEnv("PROXMOX_BRIDGE", ""),
 		WazuhAPIURL:           getEnv("WAZUH_API_URL", ""),
 		WazuhUser:             getEnv("WAZUH_USER", ""),
 		WazuhPassword:         getEnv("WAZUH_PASSWORD", ""),
@@ -81,6 +91,7 @@ func Load() *Config {
 		AIURL:                 getEnv("AI_URL", ""),
 		AIAPIKey:              getEnv("AI_API_KEY", ""),
 		AIModel:               getEnv("AI_MODEL", ""),
+		OpenAIBaseURL:         getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		DiscordBotToken:       getEnv("DISCORD_BOT_TOKEN", ""),
 		DiscordChannelID:      getEnv("DISCORD_CHANNEL_ID", ""),
 		DiscordAuthChannel:    getEnv("DISCORD_AUTH_CHANNEL_ID", ""),
