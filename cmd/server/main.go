@@ -255,6 +255,9 @@ func main() {
 	startWorker("ansible", func(ctx context.Context) {
 		workers.StartAnsibleScheduler(ctx, db, sshService, discordBot)
 	})
+	startWorker("backup-test-scheduler", func(ctx context.Context) {
+		workers.StartBackupTestScheduler(ctx, cfg, backupService, discordBot)
+	})
 
 	// TLS cert
 	if err := server.EnsureCert(); err != nil {

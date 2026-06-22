@@ -163,3 +163,27 @@ func TestSanitizeName(t *testing.T) {
 		})
 	}
 }
+
+func TestRotationLevel(t *testing.T) {
+	tests := []struct {
+		name            string
+		healthcheckType string
+		want            string
+	}{
+		{"empty -> N2", "", "N2"},
+		{"none -> N2", "none", "N2"},
+		{"NONE uppercase -> N2", "NONE", "N2"},
+		{"none padded -> N2", "  none  ", "N2"},
+		{"service -> N3", "service", "N3"},
+		{"port -> N3", "port", "N3"},
+		{"PORT uppercase -> N3", "PORT", "N3"},
+		{"arbitrary non-empty -> N3", "http", "N3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := rotationLevel(tt.healthcheckType); got != tt.want {
+				t.Errorf("rotationLevel(%q) = %q, want %q", tt.healthcheckType, got, tt.want)
+			}
+		})
+	}
+}

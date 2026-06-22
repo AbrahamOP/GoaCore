@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 )
 
 // Config holds all application configuration loaded from environment variables.
@@ -47,6 +48,10 @@ type Config struct {
 	GoabackupSSHUser    string
 	GoabackupSSHKeyFile string
 
+	// GoaBackup scheduled restore-test rotation
+	BackupTestRotationEnabled bool
+	BackupTestHour            int
+
 	// Server
 	HTTPPort      string
 	HTTPSPort     string
@@ -83,11 +88,15 @@ func Load() *Config {
 		GoabackupSSHHost:      getEnv("GOABACKUP_SSH_HOST", ""),
 		GoabackupSSHUser:      getEnv("GOABACKUP_SSH_USER", "goabackup"),
 		GoabackupSSHKeyFile:   getEnv("GOABACKUP_SSH_KEY_FILE", ""),
-		HTTPPort:              getEnv("PORT", "8080"),
-		HTTPSPort:             getEnv("HTTPS_PORT", "8443"),
-		SessionSecret:         getEnv("SESSION_SECRET", "super-secret-key-change-me"),
-		CookieSecure:          getEnv("COOKIE_SECURE", "true") != "false",
-		SkipTLSVerify:         getEnv("SKIP_TLS_VERIFY", "false") == "true",
+
+		BackupTestRotationEnabled: getEnvBool("GOABACKUP_TEST_ROTATION_ENABLED", false),
+		BackupTestHour:            getEnvIntBounded("GOABACKUP_TEST_HOUR", 4, 0, 23),
+
+		HTTPPort:      getEnv("PORT", "8080"),
+		HTTPSPort:     getEnv("HTTPS_PORT", "8443"),
+		SessionSecret: getEnv("SESSION_SECRET", "super-secret-key-change-me"),
+		CookieSecure:  getEnv("COOKIE_SECURE", "true") != "false",
+		SkipTLSVerify: getEnv("SKIP_TLS_VERIFY", "false") == "true",
 	}
 
 	// Legacy Ollama support
@@ -128,4 +137,37 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getEnvBool reads a boolean env var. Accepts true/1/yes/on (case-insensitive).
+func getEnvBool(key string, fallback bool) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
+}
+
+// getEnvIntBounded reads an int env var, clamping it to [min,max]. A missing or
+// unparseable value yields the fallback (which is assumed already in range).
+func getEnvIntBounded(key string, fallback, min, max int) int {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
 }

@@ -21,6 +21,11 @@ const defaultBackupStorage = "local"
 // ErrBackupInProgress is returned when a backup is already running for a target.
 var ErrBackupInProgress = errors.New("a backup is already running for this target")
 
+// ErrNoRotationTarget is the sentinel returned by NextRotationTarget when there is
+// no enabled backup target to schedule a restore test for. It is NOT fatal: the
+// scheduler logs it and waits for the next opportunity.
+var ErrNoRotationTarget = errors.New("no enabled backup target available for rotation")
+
 // sanitizeName cleans a target name coming from an untrusted source (Proxmox
 // guest config / vm_cache, freely settable by a guest owner) before it is stored
 // or rendered. It whitelists [A-Za-z0-9 ._-], drops anything else, trims and
@@ -459,6 +464,80 @@ func (s *BackupService) loadTargets() ([]models.BackupTarget, error) {
 		return a < b
 	})
 	return targets, rows.Err()
+}
+
+// rotationRow is one candidate considered by the scheduled-test rotation: an
+// enabled backup target and (a marker for) the age of its most recent restore
+// test. lastTest.Valid is false when the target has NEVER been tested.
+type rotationRow struct {
+	ID              int
+	Name            string
+	SourceRef       string
+	HealthcheckType string
+}
+
+// rotationLevel derives the restore-test level for a target from its healthcheck
+// configuration: N3 (restore + boot + in-guest healthcheck) when a healthcheck is
+// configured, N2 (restore + boot only) otherwise. Pure and table-testable.
+func rotationLevel(healthcheckType string) string {
+	t := strings.TrimSpace(strings.ToLower(healthcheckType))
+	if t != "" && t != "none" {
+		return "N3"
+	}
+	return "N2"
+}
+
+// NextRotationTarget selects the enabled backup target that is the most "behind"
+// on restore testing: the one whose most recent restore_tests row is the oldest,
+// with NEVER-tested targets taking absolute priority. It returns the target ID,
+// the derived test level (N2/N3), and the target name.
+//
+// If there is no enabled target it returns ErrNoRotationTarget (a non-fatal
+// sentinel the scheduler handles gracefully).
+//
+// SQL: LEFT JOIN each enabled target onto the MAX(created_at) of its restore
+// tests; order never-tested first (last_test IS NOT NULL ⇒ 0 sorts ahead), then
+// by oldest last_test ascending. Ties break on the lowest target id for a stable,
+// deterministic rotation.
+func (s *BackupService) NextRotationTarget() (int, string, string, error) {
+	const q = `
+		SELECT bt.id, bt.name, bt.source_ref, COALESCE(bt.healthcheck_type, '')
+		FROM backup_targets bt
+		LEFT JOIN (
+		    SELECT target_id, MAX(created_at) AS last_test
+		    FROM restore_tests
+		    GROUP BY target_id
+		) rt ON rt.target_id = bt.id
+		WHERE bt.enabled = TRUE
+		ORDER BY rt.last_test IS NOT NULL, rt.last_test ASC, bt.id ASC
+		LIMIT 1`
+
+	var row rotationRow
+	err := s.db.QueryRow(q).Scan(&row.ID, &row.Name, &row.SourceRef, &row.HealthcheckType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", "", ErrNoRotationTarget
+	}
+	if err != nil {
+		return 0, "", "", fmt.Errorf("select rotation target: %w", err)
+	}
+
+	name := sanitizeName(row.Name, mustAtoi(row.SourceRef))
+	return row.ID, rotationLevel(row.HealthcheckType), name, nil
+}
+
+// SchedulerTestRanToday reports whether a scheduler-triggered restore test has
+// already been created today (server local date). It backs the scheduler's daily
+// dedup so the rotation fires at most once per day even though the worker ticks
+// every 60s throughout the configured hour.
+func (s *BackupService) SchedulerTestRanToday() (bool, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM restore_tests
+		 WHERE triggered_by = 'scheduler' AND DATE(created_at) = CURDATE()`).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // rpoStatus classifies a backup age against the target RPO threshold.

@@ -23,11 +23,15 @@ func (h *Handler) HandleBackupPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Targets []models.BackupTargetView
-		Summary models.BackupSummary
+		Targets         []models.BackupTargetView
+		Summary         models.BackupSummary
+		RotationEnabled bool
+		RotationHour    int
 	}{
-		Targets: views,
-		Summary: summary,
+		Targets:         views,
+		Summary:         summary,
+		RotationEnabled: h.Config.BackupTestRotationEnabled,
+		RotationHour:    h.Config.BackupTestHour,
 	}
 
 	if err := h.Templates.ExecuteTemplate(w, "backups.html", data); err != nil {
