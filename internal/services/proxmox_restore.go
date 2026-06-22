@@ -270,11 +270,46 @@ func (p *ProxmoxService) DestroyGuest(rawURL, node, tokenID, secret, pveType str
 	}
 
 	client, baseURL, targetNode := p.restoreClient(rawURL, node, tokenID, secret, 30*time.Second)
+	auth := func(req *http.Request) {
+		req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
+	}
+
+	// A guest cannot be destroyed while running — the DELETE returns 500
+	// ("VM X is running - destroy failed"). Force-stop it first and wait until it
+	// is actually stopped. Best-effort: a stop error (already stopped) is ignored.
+	stopURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%d/status/stop", baseURL, targetNode, gtype, vmid)
+	stopReq, _ := http.NewRequest("POST", stopURL, nil)
+	auth(stopReq)
+	if stopResp, serr := client.Do(stopReq); serr == nil {
+		stopResp.Body.Close()
+	}
+	statusURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%d/status/current", baseURL, targetNode, gtype, vmid)
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		sReq, _ := http.NewRequest("GET", statusURL, nil)
+		auth(sReq)
+		sResp, serr := client.Do(sReq)
+		if serr != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		var st struct {
+			Data struct {
+				Status string `json:"status"`
+			} `json:"data"`
+		}
+		_ = json.NewDecoder(sResp.Body).Decode(&st)
+		sResp.Body.Close()
+		if st.Data.Status == "stopped" {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
 
 	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%d?purge=1&destroy-unreferenced-disks=1",
 		baseURL, targetNode, gtype, vmid)
 	req, _ := http.NewRequest("DELETE", apiURL, nil)
-	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
+	auth(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
