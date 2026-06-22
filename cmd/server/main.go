@@ -256,7 +256,9 @@ func main() {
 		workers.StartAnsibleScheduler(ctx, db, sshService, discordBot)
 	})
 	startWorker("backup-test-scheduler", func(ctx context.Context) {
-		workers.StartBackupTestScheduler(ctx, cfg, backupService, discordBot)
+		// Rotation enablement/hour are read live from the DB (backup_settings) by
+		// the worker; the GOABACKUP_TEST_* env vars no longer drive it.
+		workers.StartBackupTestScheduler(ctx, backupService, discordBot)
 	})
 
 	// TLS cert

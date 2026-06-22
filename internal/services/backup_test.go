@@ -187,3 +187,62 @@ func TestRotationLevel(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTargetSettings(t *testing.T) {
+	tests := []struct {
+		name       string
+		hcType     string
+		hcTarget   string
+		retention  int
+		wantType   string
+		wantTarget string
+		wantErr    bool
+	}{
+		{"none normalizes empty target", "none", "ignored", 3, "none", "", false},
+		{"empty type defaults to none", "", "", 3, "none", "", false},
+		{"service ok", "Service", "nginx", 5, "service", "nginx", false},
+		{"port numeric ok", "port", "443", 2, "port", "443", false},
+		{"uppercase port normalized", "PORT", "8080", 1, "port", "8080", false},
+		{"invalid type rejected", "ping", "x", 3, "", "", true},
+		{"port non-numeric rejected", "port", "abc", 3, "", "", true},
+		{"port out of range rejected", "port", "70000", 3, "", "", true},
+		{"port empty rejected", "port", "", 3, "", "", true},
+		{"negative retention rejected", "none", "", -1, "", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotType, gotTarget, err := validateTargetSettings(tt.hcType, tt.hcTarget, tt.retention)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateTargetSettings(%q,%q,%d) err = %v, wantErr %v", tt.hcType, tt.hcTarget, tt.retention, err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if gotType != tt.wantType || gotTarget != tt.wantTarget {
+				t.Errorf("validateTargetSettings(%q,%q,%d) = (%q,%q), want (%q,%q)",
+					tt.hcType, tt.hcTarget, tt.retention, gotType, gotTarget, tt.wantType, tt.wantTarget)
+			}
+		})
+	}
+}
+
+func TestValidateRotationHour(t *testing.T) {
+	tests := []struct {
+		name    string
+		hour    int
+		wantErr bool
+	}{
+		{"min bound", 0, false},
+		{"max bound", 23, false},
+		{"mid", 4, false},
+		{"negative", -1, true},
+		{"too large", 24, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateRotationHour(tt.hour); (err != nil) != tt.wantErr {
+				t.Errorf("validateRotationHour(%d) err = %v, wantErr %v", tt.hour, err, tt.wantErr)
+			}
+		})
+	}
+}

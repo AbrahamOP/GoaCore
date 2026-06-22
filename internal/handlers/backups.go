@@ -22,6 +22,13 @@ func (h *Handler) HandleBackupPage(w http.ResponseWriter, r *http.Request) {
 		slog.Error("backup: dashboard", "error", err)
 	}
 
+	// Rotation config now lives in the DB (backup_settings), editable from the UI
+	// and read live by the worker. Fall back to defaults on error.
+	settings, err := h.Backup.GetSettings()
+	if err != nil {
+		slog.Error("backup: get settings", "error", err)
+	}
+
 	data := struct {
 		Targets         []models.BackupTargetView
 		Summary         models.BackupSummary
@@ -30,8 +37,8 @@ func (h *Handler) HandleBackupPage(w http.ResponseWriter, r *http.Request) {
 	}{
 		Targets:         views,
 		Summary:         summary,
-		RotationEnabled: h.Config.BackupTestRotationEnabled,
-		RotationHour:    h.Config.BackupTestHour,
+		RotationEnabled: settings.RotationEnabled,
+		RotationHour:    settings.RotationHour,
 	}
 
 	if err := h.Templates.ExecuteTemplate(w, "backups.html", data); err != nil {
@@ -179,4 +186,74 @@ func (h *Handler) HandleBackupRunsList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(runs)
+}
+
+// HandleBackupSettings updates the global rotation settings (POST /api/backups/settings).
+// Admin-only: gated at the router level, with an inline defense-in-depth check.
+// Accepts {rotation_enabled, rotation_hour} as JSON. The worker reads these live
+// from the DB so the change takes effect without a redeploy.
+func (h *Handler) HandleBackupSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !middleware.RequireAdmin(w, r, h.SessionStore, h.DB) {
+		return
+	}
+
+	var body struct {
+		RotationEnabled bool `json:"rotation_enabled"`
+		RotationHour    int  `json:"rotation_hour"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Backup.SetSettings(body.RotationEnabled, body.RotationHour); err != nil {
+		slog.Error("backup: set settings", "error", err)
+		http.Error(w, "Paramètres invalides (heure 0-23)", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+}
+
+// HandleBackupTargetSettings updates a single target's healthcheck + retention
+// (POST /api/backups/target-settings). Admin-only: gated at the router level,
+// with an inline defense-in-depth check. Accepts
+// {target_id, healthcheck_type, healthcheck_target, retention_count} as JSON.
+func (h *Handler) HandleBackupTargetSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !middleware.RequireAdmin(w, r, h.SessionStore, h.DB) {
+		return
+	}
+
+	var body struct {
+		TargetID          int    `json:"target_id"`
+		HealthcheckType   string `json:"healthcheck_type"`
+		HealthcheckTarget string `json:"healthcheck_target"`
+		RetentionCount    int    `json:"retention_count"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if body.TargetID <= 0 {
+		http.Error(w, "Invalid target_id", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Backup.UpdateTargetSettings(body.TargetID, body.HealthcheckType, body.HealthcheckTarget, body.RetentionCount); err != nil {
+		slog.Error("backup: update target settings", "target_id", body.TargetID, "error", err)
+		http.Error(w, "Paramètres de cible invalides", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 }

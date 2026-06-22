@@ -35,6 +35,12 @@
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                         Rafraîchir
                     </a>
+                    <button type="button" onclick="openSettingsModal()"
+                        class="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium bg-surface-container text-on-surface-variant border border-outline-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
+                        title="Paramètres des sauvegardes">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Paramètres
+                    </button>
                     {{template "top-actions"}}
                 </div>
             </div>
@@ -155,6 +161,99 @@
 
         </div>
     </main>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div class="bg-surface-container border border-outline-variant w-full max-w-3xl rounded-xl shadow-2xl transform transition-all scale-100 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center px-6 py-4 border-b border-outline-variant">
+                <h3 class="text-lg font-bold text-on-surface flex items-center gap-2">
+                    <svg class="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Paramètres des sauvegardes
+                </h3>
+                <button onclick="closeSettingsModal()" class="text-on-surface-variant hover:text-on-surface transition">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="px-6 py-5 overflow-y-auto space-y-8">
+                <!-- Rotation automatique -->
+                <section>
+                    <h4 class="text-sm font-semibold text-on-surface mb-1">Rotation automatique</h4>
+                    <p class="text-xs text-on-surface-variant mb-4">Déclenche chaque nuit un test de restauration sur la cible la plus en retard (sandbox VLAN 99). Pris en compte à chaud, sans redéploiement.</p>
+                    <div class="bg-surface-container-high border border-outline-variant rounded-xl p-4 flex flex-wrap items-end gap-6">
+                        <label class="flex items-center gap-3 cursor-pointer select-none">
+                            <input type="checkbox" id="settings-rotation-enabled"
+                                class="w-4 h-4 rounded border-outline-variant bg-transparent text-primary focus:ring-primary focus:ring-2"
+                                {{if .RotationEnabled}}checked{{end}}>
+                            <span class="text-sm text-on-surface">Activer la rotation nocturne</span>
+                        </label>
+                        <div>
+                            <label class="block text-xs text-on-surface-variant mb-1" for="settings-rotation-hour">Heure (0-23)</label>
+                            <input type="number" id="settings-rotation-hour" min="0" max="23" value="{{.RotationHour}}"
+                                class="w-24 bg-surface-container text-on-surface text-sm rounded-lg border border-outline-variant px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary">
+                        </div>
+                        <button type="button" onclick="saveRotationSettings(this)"
+                            class="ml-auto px-4 py-2 rounded-full text-sm font-medium bg-primary text-on-primary hover:opacity-90 transition disabled:opacity-50">
+                            Enregistrer
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Cibles -->
+                <section>
+                    <h4 class="text-sm font-semibold text-on-surface mb-1">Configuration par cible</h4>
+                    <p class="text-xs text-on-surface-variant mb-4">Healthcheck post-restauration (N3) et nombre de sauvegardes à conserver.</p>
+                    <div class="overflow-x-auto border border-outline-variant rounded-xl">
+                        <table class="w-full text-left text-sm text-on-surface-variant">
+                            <thead class="bg-surface-container-high text-xs uppercase font-medium text-on-surface-variant">
+                                <tr>
+                                    <th class="px-4 py-3">Cible</th>
+                                    <th class="px-4 py-3">Healthcheck</th>
+                                    <th class="px-4 py-3">Valeur</th>
+                                    <th class="px-4 py-3">Rétention</th>
+                                    <th class="px-4 py-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-outline-variant">
+                                {{range .Targets}}
+                                <tr data-tsettings-id="{{.Target.ID}}">
+                                    <td class="px-4 py-3 font-medium text-on-surface whitespace-nowrap">{{.Target.Name}}
+                                        <span class="block font-mono text-xs text-on-surface-variant">{{.Target.TargetType}} · {{.Target.SourceRef}}</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <select class="hc-type themed bg-surface-container-high text-on-surface text-xs rounded-lg border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary">
+                                            <option value="none" {{if eq .Target.HealthcheckType "none"}}selected{{end}}>Aucun</option>
+                                            <option value="service" {{if eq .Target.HealthcheckType "service"}}selected{{end}}>Service</option>
+                                            <option value="port" {{if eq .Target.HealthcheckType "port"}}selected{{end}}>Port</option>
+                                        </select>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="text" class="hc-target bg-surface-container-high text-on-surface text-xs rounded-lg border border-outline-variant px-2 py-1.5 w-36 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            value="{{.Target.HealthcheckTarget}}"
+                                            placeholder="{{if eq .Target.HealthcheckType "port"}}port{{else}}nom du service{{end}}">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" min="0" class="hc-retention bg-surface-container-high text-on-surface text-xs rounded-lg border border-outline-variant px-2 py-1.5 w-20 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            value="{{.Target.RetentionCount}}">
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <button type="button" onclick="saveTargetSettings(this, {{.Target.ID}})"
+                                            class="px-3 py-1.5 rounded-full text-xs font-medium bg-secondary-container text-on-secondary-container border border-outline-variant hover:opacity-90 transition disabled:opacity-50">
+                                            Enregistrer
+                                        </button>
+                                    </td>
+                                </tr>
+                                {{else}}
+                                <tr><td colspan="5" class="px-4 py-8 text-center text-sm text-on-surface-variant">Aucune cible à configurer.</td></tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
 
     <!-- Toast container -->
     <div id="backup-toast" class="fixed bottom-6 right-6 z-50 hidden">
@@ -352,6 +451,81 @@
                     }
                 });
             });
+
+            // --- Settings modal ------------------------------------------------
+
+            window.openSettingsModal = function () {
+                document.getElementById('settings-modal').classList.remove('hidden');
+            };
+            window.closeSettingsModal = function () {
+                document.getElementById('settings-modal').classList.add('hidden');
+            };
+
+            // Close on backdrop click.
+            const settingsModal = document.getElementById('settings-modal');
+            if (settingsModal) {
+                settingsModal.addEventListener('click', (e) => {
+                    if (e.target === settingsModal) window.closeSettingsModal();
+                });
+            }
+
+            window.saveRotationSettings = async function (btn) {
+                const enabled = document.getElementById('settings-rotation-enabled').checked;
+                const hour = parseInt(document.getElementById('settings-rotation-hour').value, 10);
+                if (isNaN(hour) || hour < 0 || hour > 23) {
+                    toast('Heure invalide (0-23)', 'error');
+                    return;
+                }
+                btn.disabled = true;
+                try {
+                    const res = await fetch('/api/backups/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ rotation_enabled: enabled, rotation_hour: hour })
+                    });
+                    if (!res.ok) throw new Error((await res.text()) || ('HTTP ' + res.status));
+                    toast('Rotation enregistrée', 'success');
+                    setTimeout(() => window.location.reload(), 800);
+                } catch (e) {
+                    toast('Échec : ' + e.message, 'error');
+                    btn.disabled = false;
+                }
+            };
+
+            window.saveTargetSettings = async function (btn, targetId) {
+                const row = btn.closest('tr');
+                if (!row) return;
+                const hcType = row.querySelector('.hc-type').value;
+                const hcTarget = row.querySelector('.hc-target').value.trim();
+                const retention = parseInt(row.querySelector('.hc-retention').value, 10);
+                if (isNaN(retention) || retention < 0) {
+                    toast('Rétention invalide (>= 0)', 'error');
+                    return;
+                }
+                if (hcType === 'port' && !/^\d+$/.test(hcTarget)) {
+                    toast('Le port doit être numérique', 'error');
+                    return;
+                }
+                btn.disabled = true;
+                try {
+                    const res = await fetch('/api/backups/target-settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            target_id: targetId,
+                            healthcheck_type: hcType,
+                            healthcheck_target: hcTarget,
+                            retention_count: retention
+                        })
+                    });
+                    if (!res.ok) throw new Error((await res.text()) || ('HTTP ' + res.status));
+                    toast('Cible mise à jour', 'success');
+                } catch (e) {
+                    toast('Échec : ' + e.message, 'error');
+                } finally {
+                    btn.disabled = false;
+                }
+            };
 
             refreshRuns();
             refreshTests();

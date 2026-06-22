@@ -144,6 +144,8 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Get("/api/backups/runs", h.HandleBackupRunsList)
 		r.Post("/api/backups/test", h.HandleBackupTest)
 		r.Get("/api/backups/tests", h.HandleBackupTestsList)
+		r.Post("/api/backups/settings", h.HandleBackupSettings)
+		r.Post("/api/backups/target-settings", h.HandleBackupTargetSettings)
 
 		// User management & audit trail
 		r.Get("/users", h.HandleUsers)

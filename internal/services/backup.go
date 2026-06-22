@@ -183,6 +183,108 @@ func (s *BackupService) Dashboard() ([]models.BackupTargetView, models.BackupSum
 	return views, summary, nil
 }
 
+// BackupSettings holds the global rotation configuration for scheduled restore
+// tests. It lives in the backup_settings table (single row id=1) so the UI can
+// change it and the worker reads it live, with no redeployment.
+type BackupSettings struct {
+	RotationEnabled bool
+	RotationHour    int
+}
+
+// validHealthcheckTypes is the closed set of healthcheck strategies a target can
+// declare.
+var validHealthcheckTypes = map[string]bool{"none": true, "service": true, "port": true}
+
+// validateTargetSettings is the pure, table-testable validation for a target's
+// healthcheck + retention settings. It normalizes the healthcheck type (trim +
+// lowercase) and returns the cleaned values, or an error if any field is invalid.
+func validateTargetSettings(healthcheckType, healthcheckTarget string, retentionCount int) (string, string, error) {
+	t := strings.TrimSpace(strings.ToLower(healthcheckType))
+	if t == "" {
+		t = "none"
+	}
+	if !validHealthcheckTypes[t] {
+		return "", "", fmt.Errorf("invalid healthcheck type %q (allowed: none, service, port)", healthcheckType)
+	}
+	target := strings.TrimSpace(healthcheckTarget)
+	if t == "port" {
+		if target == "" {
+			return "", "", errors.New("healthcheck target (port) is required when type is port")
+		}
+		port, err := strconv.Atoi(target)
+		if err != nil || port < 1 || port > 65535 {
+			return "", "", fmt.Errorf("healthcheck target must be a numeric port 1-65535, got %q", healthcheckTarget)
+		}
+	}
+	if t == "none" {
+		target = ""
+	}
+	if retentionCount < 0 {
+		return "", "", fmt.Errorf("retention count must be >= 0, got %d", retentionCount)
+	}
+	return t, target, nil
+}
+
+// validateRotationHour bounds the rotation hour to a valid 0-23 range.
+func validateRotationHour(hour int) error {
+	if hour < 0 || hour > 23 {
+		return fmt.Errorf("rotation hour must be between 0 and 23, got %d", hour)
+	}
+	return nil
+}
+
+// GetSettings returns the global backup rotation settings (row id=1). If the row
+// is somehow absent it falls back to safe defaults {disabled, 4h} instead of
+// erroring, so the worker never crashes on a missing row.
+func (s *BackupService) GetSettings() (BackupSettings, error) {
+	var bs BackupSettings
+	err := s.db.QueryRow(
+		`SELECT rotation_enabled, rotation_hour FROM backup_settings WHERE id = 1`).
+		Scan(&bs.RotationEnabled, &bs.RotationHour)
+	if errors.Is(err, sql.ErrNoRows) {
+		return BackupSettings{RotationEnabled: false, RotationHour: 4}, nil
+	}
+	if err != nil {
+		return BackupSettings{}, fmt.Errorf("get backup settings: %w", err)
+	}
+	return bs, nil
+}
+
+// SetSettings updates the global rotation settings (row id=1). The hour is
+// validated to 0-23 before any write.
+func (s *BackupService) SetSettings(enabled bool, hour int) error {
+	if err := validateRotationHour(hour); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(
+		`UPDATE backup_settings SET rotation_enabled = ?, rotation_hour = ? WHERE id = 1`,
+		enabled, hour)
+	if err != nil {
+		return fmt.Errorf("set backup settings: %w", err)
+	}
+	return nil
+}
+
+// UpdateTargetSettings updates a single target's healthcheck strategy and backup
+// retention count. All inputs are validated (closed healthcheck-type set, numeric
+// port when type=port, non-negative retention) before any write.
+func (s *BackupService) UpdateTargetSettings(targetID int, healthcheckType, healthcheckTarget string, retentionCount int) error {
+	if targetID <= 0 {
+		return fmt.Errorf("invalid target id %d", targetID)
+	}
+	cleanType, cleanTarget, err := validateTargetSettings(healthcheckType, healthcheckTarget, retentionCount)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
+		`UPDATE backup_targets SET healthcheck_type = ?, healthcheck_target = ?, retention_count = ? WHERE id = ?`,
+		cleanType, cleanTarget, retentionCount, targetID)
+	if err != nil {
+		return fmt.Errorf("update target settings: %w", err)
+	}
+	return nil
+}
+
 // backupPollInterval is how often the async worker polls the vzdump task status.
 const backupPollInterval = 5 * time.Second
 

@@ -169,6 +169,11 @@ func Migrate(db *sql.DB) {
 			INDEX idx_bruns_status (status),
 			INDEX idx_bruns_created (created_at)
 		)`,
+		`CREATE TABLE IF NOT EXISTS backup_settings (
+			id INT PRIMARY KEY DEFAULT 1,
+			rotation_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+			rotation_hour INT NOT NULL DEFAULT 4
+		)`,
 		`CREATE TABLE IF NOT EXISTS restore_tests (
 			id INT AUTO_INCREMENT PRIMARY KEY,
 			target_id INT NOT NULL,
@@ -196,6 +201,10 @@ func Migrate(db *sql.DB) {
 
 	// Ensure soar_config default row
 	db.Exec(`INSERT IGNORE INTO soar_config (id, alert_status, alert_ssh, alert_sudo, alert_fim, alert_packages) VALUES (1, TRUE, TRUE, TRUE, TRUE, TRUE)`)
+
+	// Ensure the single backup_settings row (id=1) always exists so the worker can
+	// read rotation config at runtime without a NULL-row special case.
+	db.Exec(`INSERT IGNORE INTO backup_settings (id) VALUES (1)`)
 
 	// Column migrations (idempotent — errors from "already exists" are ignored)
 	migrations := []string{

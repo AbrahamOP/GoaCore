@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"goacloud/internal/config"
 	"goacloud/internal/services"
 )
 
@@ -16,20 +15,21 @@ import (
 // (which owns all the safety: sandbox guards, VLAN99 isolation, guaranteed
 // destroy, atomic VMID reservation). The worker NEVER touches Proxmox directly.
 //
+// Rotation enablement and hour are read LIVE from the DB (backup_settings) on
+// every tick via BackupService.GetSettings, so toggling the rotation in the UI
+// takes effect without restarting or redeploying the server. The ticker always
+// runs; each tick is a no-op when rotation is disabled or outside the hour.
+//
 // Resilience: every tick runs inside a recover-guarded function so a panic or
 // error can never kill the worker (the SOAR worker once died this way). It only
 // stops on ctx.Done().
-func StartBackupTestScheduler(ctx context.Context, cfg *config.Config, backup *services.BackupService, discord *services.DiscordBot) {
-	if cfg == nil || backup == nil {
-		slog.Error("Backup test scheduler: nil config or backup service — not starting")
-		return
-	}
-	if !cfg.BackupTestRotationEnabled {
-		slog.Info("Backup test scheduler: rotation désactivée (GOABACKUP_TEST_ROTATION_ENABLED=false)")
+func StartBackupTestScheduler(ctx context.Context, backup *services.BackupService, discord *services.DiscordBot) {
+	if backup == nil {
+		slog.Error("Backup test scheduler: nil backup service — not starting")
 		return
 	}
 
-	slog.Info("Starting Backup Test Scheduler Worker...", "hour", cfg.BackupTestHour)
+	slog.Info("Starting Backup Test Scheduler Worker (live DB-driven rotation)...")
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -38,23 +38,34 @@ func StartBackupTestScheduler(ctx context.Context, cfg *config.Config, backup *s
 			slog.Info("Backup test scheduler stopped")
 			return
 		case <-ticker.C:
-			runBackupRotationTick(backup, cfg.BackupTestHour)
+			runBackupRotationTick(backup)
 		}
 	}
 }
 
 // runBackupRotationTick is the per-tick body, fully recover-guarded so the worker
-// can never die. It is a no-op outside the configured hour or once the daily test
-// has already fired.
-func runBackupRotationTick(backup *services.BackupService, testHour int) {
+// can never die. It reads rotation settings live from the DB and is a no-op when
+// rotation is disabled, outside the configured hour, or once the daily test has
+// already fired.
+func runBackupRotationTick(backup *services.BackupService) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("Backup test scheduler: panic recovered in tick", "panic", rec)
 		}
 	}()
 
+	// Read rotation config live from the DB so UI changes take effect immediately.
+	settings, err := backup.GetSettings()
+	if err != nil {
+		slog.Error("Backup test scheduler: failed to read settings", "error", err)
+		return
+	}
+	if !settings.RotationEnabled {
+		return
+	}
+
 	// Only act during the configured hour of the day.
-	if time.Now().Hour() != testHour {
+	if time.Now().Hour() != settings.RotationHour {
 		return
 	}
 
