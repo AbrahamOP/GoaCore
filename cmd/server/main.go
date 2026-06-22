@@ -87,12 +87,29 @@ func main() {
 	proxmoxService := services.NewProxmoxService(db, cfg.SkipTLSVerify)
 	backupService := services.NewBackupService(db, proxmoxService, cfg)
 
+	// Wire the read-only Proxmox helper channel for restore testing (nil-safe:
+	// the feature degrades to clear errors if GOABACKUP_SSH_* are unset).
+	restoreChannel := services.NewProxmoxChannel(cfg)
+	backupService.SetChannel(restoreChannel)
+	if restoreChannel.Configured() {
+		slog.Info("Restore-test channel configured", "host", cfg.GoabackupSSHHost, "user", cfg.GoabackupSSHUser)
+	} else {
+		slog.Info("Restore-test channel not configured (missing GOABACKUP_SSH_HOST/KEY_FILE)")
+	}
+
 	// Reconcile zombie backup runs left "running" by a previous restart: their
 	// driving goroutine is gone, so they would otherwise stay stuck forever.
 	if n, err := backupService.ReconcileRunningRuns(); err != nil {
 		slog.Error("backup: reconcile running runs", "error", err)
 	} else if n > 0 {
 		slog.Info("backup: reconciled orphaned running runs", "count", n)
+	}
+
+	// Same reconciliation for orphaned restore tests (DB rows).
+	if n, err := backupService.ReconcileRunningTests(); err != nil {
+		slog.Error("restore-test: reconcile running tests", "error", err)
+	} else if n > 0 {
+		slog.Info("restore-test: reconciled orphaned running tests", "count", n)
 	}
 
 	var wazuhClient *services.WazuhClient
@@ -155,6 +172,18 @@ func main() {
 
 	// Wire Discord notifications into the backup service (nil-safe).
 	backupService.SetDiscord(discordBot)
+
+	// Purge any guest leaked in the disposable sandbox range [9500,9599] on the
+	// host (a crash mid-test can leave one behind). No legitimate guest ever lives
+	// there — the whole range is disposable by definition. Done AFTER the DB
+	// reconciliation above and AFTER Discord is wired so zombie alerts can fire.
+	if restoreChannel.Configured() {
+		if n, err := backupService.ReconcileSandboxGuests(); err != nil {
+			slog.Error("restore-test: reconcile sandbox guests", "error", err)
+		} else if n > 0 {
+			slog.Warn("restore-test: purged leaked sandbox guests at boot", "count", n)
+		}
+	}
 
 	// Shared state
 	wazuhCache := &models.WazuhCache{}

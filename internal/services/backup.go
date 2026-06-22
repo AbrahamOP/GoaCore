@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"goacloud/internal/config"
@@ -45,22 +46,47 @@ func sanitizeName(name string, vmid int) string {
 	return cleaned
 }
 
-// BackupService orchestrates backup inventory, RPO evaluation and (later) restore testing.
+// BackupService orchestrates backup inventory, RPO evaluation and restore testing.
 type BackupService struct {
 	db      *sql.DB
 	proxmox *ProxmoxService
 	cfg     *config.Config
 	discord *DiscordBot
+	channel *ProxmoxChannel
+
+	// testInFlight tracks which target IDs currently have a restore test running,
+	// to enforce one test at a time per target (anti-concurrency).
+	//
+	// sandboxInUse tracks which sandbox VMIDs ([9500,9599]) are currently reserved
+	// by an in-flight test. It is the GLOBAL (cross-target) reservation that makes
+	// it impossible for two concurrent tests on DIFFERENT targets to elect — and
+	// then overwrite each other on — the same disposable VMID. Both maps are
+	// protected by testMu.
+	testMu       sync.Mutex
+	testInFlight map[int]bool
+	sandboxInUse map[int]bool
 }
 
 // NewBackupService creates a BackupService.
 func NewBackupService(db *sql.DB, proxmox *ProxmoxService, cfg *config.Config) *BackupService {
-	return &BackupService{db: db, proxmox: proxmox, cfg: cfg}
+	return &BackupService{
+		db:           db,
+		proxmox:      proxmox,
+		cfg:          cfg,
+		testInFlight: make(map[int]bool),
+		sandboxInUse: make(map[int]bool),
+	}
 }
 
 // SetDiscord wires a Discord bot for backup notifications (optional; nil-safe).
 func (s *BackupService) SetDiscord(d *DiscordBot) {
 	s.discord = d
+}
+
+// SetChannel wires the read-only Proxmox helper channel for restore testing
+// (optional; nil-safe — the feature degrades to clear errors if absent).
+func (s *BackupService) SetChannel(c *ProxmoxChannel) {
+	s.channel = c
 }
 
 // Dashboard lists backups from Proxmox, auto-discovers targets, and returns each

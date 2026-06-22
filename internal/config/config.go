@@ -42,6 +42,11 @@ type Config struct {
 	DiscordAuthChannel    string
 	DiscordAnsibleChannel string
 
+	// GoaBackup restore-test channel (read-only SSH helper on the Proxmox host)
+	GoabackupSSHHost    string
+	GoabackupSSHUser    string
+	GoabackupSSHKeyFile string
+
 	// Server
 	HTTPPort      string
 	HTTPSPort     string
@@ -75,6 +80,9 @@ func Load() *Config {
 		DiscordChannelID:      getEnv("DISCORD_CHANNEL_ID", ""),
 		DiscordAuthChannel:    getEnv("DISCORD_AUTH_CHANNEL_ID", ""),
 		DiscordAnsibleChannel: getEnv("DISCORD_ANSIBLE_CHANNEL_ID", ""),
+		GoabackupSSHHost:      getEnv("GOABACKUP_SSH_HOST", ""),
+		GoabackupSSHUser:      getEnv("GOABACKUP_SSH_USER", "goabackup"),
+		GoabackupSSHKeyFile:   getEnv("GOABACKUP_SSH_KEY_FILE", ""),
 		HTTPPort:              getEnv("PORT", "8080"),
 		HTTPSPort:             getEnv("HTTPS_PORT", "8443"),
 		SessionSecret:         getEnv("SESSION_SECRET", "super-secret-key-change-me"),

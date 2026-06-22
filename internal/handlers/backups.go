@@ -81,6 +81,83 @@ func (h *Handler) HandleBackupCreate(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"run_id": runID, "status": "running"})
 }
 
+// HandleBackupTest triggers a restore test for a target (POST /api/backups/test).
+// Admin-only: gated at the router level, with an inline defense-in-depth check.
+// This launches a DESTRUCTIVE restore into a disposable sandbox VMID (9500-9599)
+// for N2/N3. Accepts {target_id, level} as JSON or form-encoded; level defaults
+// to N3. Returns the new test ID immediately (the work runs asynchronously).
+func (h *Handler) HandleBackupTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !middleware.RequireAdmin(w, r, h.SessionStore, h.DB) {
+		return
+	}
+
+	targetID := 0
+	level := ""
+	var body struct {
+		TargetID int    `json:"target_id"`
+		Level    string `json:"level"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.TargetID > 0 {
+		targetID = body.TargetID
+		level = body.Level
+	}
+	if targetID <= 0 {
+		if v := r.FormValue("target_id"); v != "" {
+			targetID, _ = strconv.Atoi(v)
+		}
+		if level == "" {
+			level = r.FormValue("level")
+		}
+	}
+	if targetID <= 0 {
+		http.Error(w, "Invalid target_id", http.StatusBadRequest)
+		return
+	}
+
+	session, _ := h.SessionStore.Get(r, "goacloud-session")
+	username, _ := session.Values["username"].(string)
+	if username == "" {
+		username = "manual"
+	}
+
+	testID, err := h.Backup.RunRestoreTest(targetID, level, username)
+	if err != nil {
+		slog.Error("restore-test: trigger", "target_id", targetID, "error", err)
+		if errors.Is(err, services.ErrRestoreTestInProgress) {
+			http.Error(w, "Un test de restauration est déjà en cours pour cette cible", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Échec du déclenchement du test de restauration", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"test_id": testID, "verdict": "running"})
+}
+
+// HandleBackupTestsList returns recent restore tests as JSON (GET /api/backups/tests).
+// Optional ?target_id= filters by target; otherwise all targets (capped at 50).
+func (h *Handler) HandleBackupTestsList(w http.ResponseWriter, r *http.Request) {
+	targetID := 0
+	if v := r.URL.Query().Get("target_id"); v != "" {
+		targetID, _ = strconv.Atoi(v)
+	}
+
+	tests, err := h.Backup.RecentTests(targetID, 50)
+	if err != nil {
+		slog.Error("restore-test: list tests", "error", err)
+		http.Error(w, "Failed to list tests", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tests)
+}
+
 // HandleBackupRunsList returns recent backup runs as JSON (GET /api/backups/runs).
 // Optional ?target_id= filters by target; otherwise all targets (capped at 50).
 func (h *Handler) HandleBackupRunsList(w http.ResponseWriter, r *http.Request) {

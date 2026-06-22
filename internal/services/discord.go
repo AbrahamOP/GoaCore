@@ -178,6 +178,90 @@ func (d *DiscordBot) SendBackupAlert(target string, vmid int, backupType, status
 	return err
 }
 
+// SendRestoreTestAlert sends a restore-test verdict embed to the main channel.
+// verdict: "passed" or "failed" (anything else renders as a neutral state).
+func (d *DiscordBot) SendRestoreTestAlert(target string, vmid int, level, verdict string, rtoSec int, detail string) error {
+	if d == nil || d.session == nil {
+		return fmt.Errorf("discord session not initialized")
+	}
+
+	color := 0x808080 // Grey — neutral / running
+	emoji := "🧪"
+	switch verdict {
+	case "passed":
+		color = 0x00ff00 // Green
+		emoji = "✅"
+	case "failed":
+		color = 0xff0000 // Red
+		emoji = "❌"
+	}
+
+	// Neutralize untrusted fields (target name from Proxmox guest config; detail
+	// may embed a Proxmox API error message) before building Markdown.
+	target = neutralizeDiscord(target)
+	detail = neutralizeDiscord(detail)
+	if len(detail) > 1000 {
+		detail = detail[len(detail)-1000:]
+	}
+
+	description := fmt.Sprintf("**Cible:** %s\n**Niveau:** `%s`\n**Verdict:** %s %s", target, level, emoji, verdict)
+	if vmid > 0 {
+		description += fmt.Sprintf("\n**Sandbox VMID:** `%d`", vmid)
+	}
+	if rtoSec > 0 {
+		description += fmt.Sprintf("\n**RTO:** %ds", rtoSec)
+	}
+	if detail != "" {
+		description += fmt.Sprintf("\n\n```\n%s\n```", detail)
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🧪 Test de restauration: " + target,
+		Description: description,
+		Color:       color,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GoaCloud Restore Test",
+		},
+	}
+
+	_, err := d.session.ChannelMessageSendEmbed(d.channelID, embed)
+	return err
+}
+
+// SendZombieSandboxAlert warns that a disposable restore-test sandbox guest could
+// not be destroyed and is now leaking on the host — a human must intervene before
+// it accumulates and fills the disk. vmid is always in the sandbox range.
+func (d *DiscordBot) SendZombieSandboxAlert(vmid int, detail string) error {
+	if d == nil || d.session == nil {
+		return fmt.Errorf("discord session not initialized")
+	}
+
+	// detail may embed a Proxmox API error message — neutralize before Markdown.
+	detail = neutralizeDiscord(detail)
+	if len(detail) > 1000 {
+		detail = detail[len(detail)-1000:]
+	}
+
+	description := fmt.Sprintf(
+		"⚠️ Le sandbox de test de restauration **VMID `%d`** n'a pas pu être détruit.\n"+
+			"Intervention manuelle requise (ce guest jetable consomme du disque).", vmid)
+	if detail != "" {
+		description += fmt.Sprintf("\n\n```\n%s\n```", detail)
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🧟 Sandbox zombie non détruit",
+		Description: description,
+		Color:       0xff0000, // Red — needs intervention
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GoaCloud Restore Test",
+		},
+	}
+
+	_, err := d.session.ChannelMessageSendEmbed(d.channelID, embed)
+	return err
+}
+
 // SendAuthAlert sends an authentication alert to the dedicated auth channel (or main channel as fallback).
 func (d *DiscordBot) SendAuthAlert(title, message string, blocked bool) error {
 	if d == nil || d.session == nil {
