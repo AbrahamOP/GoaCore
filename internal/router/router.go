@@ -141,6 +141,7 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		// Backups — management & restore testing (triggers restore/destroy)
 		r.Get("/backups", h.HandleBackupPage)
 		r.Post("/api/backups/create", h.HandleBackupCreate)
+		r.Get("/api/backups/remotes", h.HandleBackupRemotes)
 		r.Get("/api/backups/runs", h.HandleBackupRunsList)
 		r.Post("/api/backups/test", h.HandleBackupTest)
 		r.Get("/api/backups/tests", h.HandleBackupTestsList)

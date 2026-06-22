@@ -200,6 +200,87 @@ func (c *ProxmoxChannel) Healthcheck(vmid int, gtype, kind, arg string) (ok bool
 	return resp.OK, resp.Detail, nil
 }
 
+// RcloneRemotes lists the rclone remotes configured on the Proxmox host. The list
+// is fully dynamic — GoaCloud never hardcodes remote names; the user picks among
+// THEIR own remotes. Helper op: "rclone-remotes" → {"ok":true,"remotes":[...]}.
+func (c *ProxmoxChannel) RcloneRemotes() ([]string, error) {
+	raw, err := c.run("rclone-remotes", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		channelEnvelope
+		Remotes []string `json:"remotes"`
+	}
+	if jerr := json.Unmarshal([]byte(raw), &resp); jerr != nil {
+		return nil, fmt.Errorf("proxmox channel: decode rclone-remotes %q: %w", raw, jerr)
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("proxmox channel: rclone-remotes not ok: %s", resp.Error)
+	}
+	return resp.Remotes, nil
+}
+
+// RcloneAbout returns the used/free/total bytes reported by `rclone about` for a
+// remote, to render its capacity in the UI. Any of the three may be 0 when the
+// backend does not report it. Helper op: "rclone-about <remote>".
+func (c *ProxmoxChannel) RcloneAbout(remote string) (used, free, total int64, err error) {
+	if strings.TrimSpace(remote) == "" {
+		return 0, 0, 0, fmt.Errorf("proxmox channel: rclone-about requires a remote")
+	}
+	raw, err := c.run("rclone-about "+remote, 30*time.Second)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	var resp struct {
+		channelEnvelope
+		Used  int64 `json:"used"`
+		Free  int64 `json:"free"`
+		Total int64 `json:"total"`
+	}
+	if jerr := json.Unmarshal([]byte(raw), &resp); jerr != nil {
+		return 0, 0, 0, fmt.Errorf("proxmox channel: decode rclone-about %q: %w", raw, jerr)
+	}
+	if !resp.OK {
+		return 0, 0, 0, fmt.Errorf("proxmox channel: rclone-about not ok: %s", resp.Error)
+	}
+	return resp.Used, resp.Free, resp.Total, nil
+}
+
+// RclonePush copies the latest local vzdump archive of vmid to a remote. When
+// keepLocal is false the local copy is removed after a successful push (true
+// off-site destination); when true the local copy is kept (local + remote). The
+// push streams a potentially large archive, so it uses a long timeout. Returns
+// the archive name reported by the helper. Helper op:
+// "rclone-push <vmid> <remote> <keeplocal 0|1>".
+func (c *ProxmoxChannel) RclonePush(vmid int, remote string, keepLocal bool) (archive string, err error) {
+	if strings.TrimSpace(remote) == "" {
+		return "", fmt.Errorf("proxmox channel: rclone-push requires a remote")
+	}
+	keep := "0"
+	if keepLocal {
+		keep = "1"
+	}
+	op := fmt.Sprintf("rclone-push %d %s %s", vmid, remote, keep)
+	// A push streams the whole archive off-site — give it a generous timeout.
+	raw, err := c.run(op, 200*time.Second)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		channelEnvelope
+		Archive   string `json:"archive"`
+		KeptLocal string `json:"kept_local"`
+	}
+	if jerr := json.Unmarshal([]byte(raw), &resp); jerr != nil {
+		return "", fmt.Errorf("proxmox channel: decode rclone-push %q: %w", raw, jerr)
+	}
+	if !resp.OK {
+		return "", fmt.Errorf("proxmox channel: rclone-push not ok: %s", resp.Error)
+	}
+	return resp.Archive, nil
+}
+
 // Ping returns the lifecycle status of a sandbox guest: "running", "stopped" or
 // "absent". Used to find a free sandbox slot and to confirm boot.
 func (c *ProxmoxChannel) Ping(vmid int) (status string, err error) {

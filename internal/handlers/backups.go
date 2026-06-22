@@ -48,7 +48,9 @@ func (h *Handler) HandleBackupPage(w http.ResponseWriter, r *http.Request) {
 
 // HandleBackupCreate triggers an on-demand vzdump for a target (POST /api/backups/create).
 // Admin-only: gated at the router level, with an inline defense-in-depth check.
-// Accepts {target_id} as JSON or form-encoded. Returns the new run ID immediately.
+// Accepts {target_id, destination, remote} as JSON or form-encoded. destination
+// defaults to "local"; for "both"/"remote" a real rclone remote is required.
+// Returns the new run ID immediately.
 func (h *Handler) HandleBackupCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -58,15 +60,23 @@ func (h *Handler) HandleBackupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read target_id from JSON body or form value.
+	// Read target_id / destination / remote from JSON body or form values.
 	targetID := 0
+	destination := ""
+	remote := ""
 	var body struct {
-		TargetID int `json:"target_id"`
+		TargetID    int    `json:"target_id"`
+		Destination string `json:"destination"`
+		Remote      string `json:"remote"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.TargetID > 0 {
 		targetID = body.TargetID
+		destination = body.Destination
+		remote = body.Remote
 	} else if v := r.FormValue("target_id"); v != "" {
 		targetID, _ = strconv.Atoi(v)
+		destination = r.FormValue("destination")
+		remote = r.FormValue("remote")
 	}
 	if targetID <= 0 {
 		http.Error(w, "Invalid target_id", http.StatusBadRequest)
@@ -76,11 +86,15 @@ func (h *Handler) HandleBackupCreate(w http.ResponseWriter, r *http.Request) {
 	session, _ := h.SessionStore.Get(r, "goacloud-session")
 	username, _ := session.Values["username"].(string)
 
-	runID, err := h.Backup.TriggerBackup(targetID, username)
+	runID, err := h.Backup.TriggerBackup(targetID, destination, remote, username)
 	if err != nil {
 		slog.Error("backup: trigger", "target_id", targetID, "error", err)
 		if errors.Is(err, services.ErrBackupInProgress) {
 			http.Error(w, "Une sauvegarde est déjà en cours pour cette cible", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, services.ErrUnknownRemote) {
+			http.Error(w, "Destination invalide : choisissez un remote rclone existant", http.StatusBadRequest)
 			return
 		}
 		// Generic message to the client; the detail is already logged above.
@@ -90,6 +104,24 @@ func (h *Handler) HandleBackupCreate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"run_id": runID, "status": "running"})
+}
+
+// HandleBackupRemotes returns the user's rclone remotes and their capacity as JSON
+// (GET /api/backups/remotes). Used to populate the destination selector and the
+// "Destinations" view. Remote names come LIVE from the helper — never hardcoded.
+func (h *Handler) HandleBackupRemotes(w http.ResponseWriter, r *http.Request) {
+	remotes, err := h.Backup.ListRemotes()
+	if err != nil {
+		// Soft-fail with an empty list: the UI degrades to "Local only" rather than
+		// breaking the page when the channel/rclone is unavailable.
+		slog.Warn("backup: list remotes", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]services.RemoteInfo{})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(remotes)
 }
 
 // HandleBackupTest triggers a restore test for a target (POST /api/backups/test).

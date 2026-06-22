@@ -120,6 +120,16 @@
                                 <td class="px-6 py-4 text-right whitespace-nowrap">
                                     <span class="run-status text-xs text-on-surface-variant mr-2" data-run-status></span>
                                     <div class="inline-flex items-center gap-2">
+                                        <select class="backup-destination bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            title="Destination de la sauvegarde">
+                                            <option value="local" selected>Local</option>
+                                            <option value="both">Local + remote</option>
+                                            <option value="remote">Remote seul</option>
+                                        </select>
+                                        <select class="backup-remote hidden bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            title="Remote rclone de destination">
+                                            <!-- peuplé dynamiquement via /api/backups/remotes -->
+                                        </select>
                                         <select class="test-level bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                             data-target-id="{{.Target.ID}}" title="Niveau de test">
                                             <option value="N3" selected>N3 · restaure + santé</option>
@@ -177,6 +187,27 @@
             </div>
 
             <div class="px-6 py-5 overflow-y-auto space-y-8">
+                <!-- Destinations (remotes rclone) -->
+                <section>
+                    <h4 class="text-sm font-semibold text-on-surface mb-1">Destinations</h4>
+                    <p class="text-xs text-on-surface-variant mb-4">Vos remotes rclone détectés sur l'hôte. Choisissez-en un comme destination off-site lors d'une sauvegarde (Local + remote, ou remote seul).</p>
+                    <div class="border border-outline-variant rounded-xl overflow-hidden">
+                        <table class="w-full text-left text-sm text-on-surface-variant">
+                            <thead class="bg-surface-container-high text-xs uppercase font-medium text-on-surface-variant">
+                                <tr>
+                                    <th class="px-4 py-3">Remote</th>
+                                    <th class="px-4 py-3">Utilisé</th>
+                                    <th class="px-4 py-3">Libre</th>
+                                    <th class="px-4 py-3">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="destinations-tbody" class="divide-y divide-outline-variant">
+                                <tr><td colspan="4" class="px-4 py-6 text-center text-sm text-on-surface-variant">Chargement…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
                 <!-- Rotation automatique -->
                 <section>
                     <h4 class="text-sm font-semibold text-on-surface mb-1">Rotation automatique</h4>
@@ -325,11 +356,89 @@
                 refreshTimer = setTimeout(refreshRuns, ms);
             }
 
+            // --- Destinations (rclone remotes) ---------------------------------
+
+            function humanBytes(b) {
+                b = Number(b) || 0;
+                if (b <= 0) return '—';
+                const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+                let i = 0;
+                while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+                return (i === 0 ? b : b.toFixed(1)) + ' ' + units[i];
+            }
+
+            // Remotes are loaded once, LIVE from the helper — never hardcoded.
+            let remotesCache = null;
+            let remotesLoaded = false;
+
+            async function loadRemotes() {
+                if (remotesLoaded) return remotesCache;
+                try {
+                    const res = await fetch('/api/backups/remotes', { headers: { 'Accept': 'application/json' } });
+                    remotesCache = res.ok ? (await res.json() || []) : [];
+                } catch (e) {
+                    remotesCache = [];
+                }
+                remotesLoaded = true;
+                populateRemoteSelects();
+                return remotesCache;
+            }
+
+            // Fill every per-row remote <select> with the user's actual remotes.
+            function populateRemoteSelects() {
+                const opts = (remotesCache || []).map(r =>
+                    '<option value="' + r.Name + '">' + r.Name + '</option>').join('');
+                document.querySelectorAll('.backup-remote').forEach(sel => {
+                    sel.innerHTML = opts;
+                });
+            }
+
+            // Render the Destinations table inside the settings modal.
+            function renderDestinations() {
+                const tbody = document.getElementById('destinations-tbody');
+                if (!tbody) return;
+                const list = remotesCache || [];
+                if (!list.length) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-sm text-on-surface-variant">Aucun remote rclone détecté (canal Proxmox indisponible ?).</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(r =>
+                    '<tr>' +
+                    '<td class="px-4 py-3 font-medium text-on-surface font-mono text-xs">' + r.Name + '</td>' +
+                    '<td class="px-4 py-3">' + humanBytes(r.UsedBytes) + '</td>' +
+                    '<td class="px-4 py-3">' + humanBytes(r.FreeBytes) + '</td>' +
+                    '<td class="px-4 py-3">' + humanBytes(r.TotalBytes) + '</td>' +
+                    '</tr>').join('');
+            }
+
+            // Show/hide the remote <select> depending on the chosen destination.
+            document.querySelectorAll('.backup-destination').forEach(sel => {
+                const row = sel.closest('tr');
+                const remoteSel = row ? row.querySelector('.backup-remote') : null;
+                const sync = () => {
+                    if (!remoteSel) return;
+                    remoteSel.classList.toggle('hidden', sel.value === 'local');
+                };
+                sel.addEventListener('change', sync);
+                sync();
+            });
+
+            loadRemotes();
+
             document.querySelectorAll('.backup-now-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const targetId = parseInt(btn.getAttribute('data-target-id'), 10);
                     const name = btn.getAttribute('data-target-name') || ('#' + targetId);
                     if (!targetId) return;
+                    const row = btn.closest('tr');
+                    const destSel = row ? row.querySelector('.backup-destination') : null;
+                    const remoteSel = row ? row.querySelector('.backup-remote') : null;
+                    const destination = destSel ? destSel.value : 'local';
+                    const remote = remoteSel ? remoteSel.value : '';
+                    if (destination !== 'local' && !remote) {
+                        toast('Sélectionnez un remote pour cette destination', 'error');
+                        return;
+                    }
                     const icon = btn.querySelector('.btn-icon');
                     const label = btn.querySelector('.btn-label');
                     const originalIcon = icon ? icon.outerHTML : '';
@@ -341,7 +450,7 @@
                         const res = await fetch('/api/backups/create', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ target_id: targetId })
+                            body: JSON.stringify({ target_id: targetId, destination: destination, remote: remote })
                         });
                         if (!res.ok) {
                             const txt = await res.text();
@@ -456,6 +565,8 @@
 
             window.openSettingsModal = function () {
                 document.getElementById('settings-modal').classList.remove('hidden');
+                // Ensure remotes are loaded, then render the Destinations table.
+                loadRemotes().then(renderDestinations);
             };
             window.closeSettingsModal = function () {
                 document.getElementById('settings-modal').classList.add('hidden');

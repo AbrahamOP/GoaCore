@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -221,6 +222,77 @@ func TestValidateTargetSettings(t *testing.T) {
 			if gotType != tt.wantType || gotTarget != tt.wantTarget {
 				t.Errorf("validateTargetSettings(%q,%q,%d) = (%q,%q), want (%q,%q)",
 					tt.hcType, tt.hcTarget, tt.retention, gotType, gotTarget, tt.wantType, tt.wantTarget)
+			}
+		})
+	}
+}
+
+func TestValidateDestination(t *testing.T) {
+	tests := []struct {
+		name       string
+		dest       string
+		remote     string
+		wantDest   string
+		wantRemote string
+		wantErr    error // nil, or a sentinel to match with errors.Is
+	}{
+		{"empty defaults to local", "", "", "local", "", nil},
+		{"local drops remote", "local", "gcrypt", "local", "", nil},
+		{"local case-insensitive", "LOCAL", "", "local", "", nil},
+		{"local padded", "  local  ", "", "local", "", nil},
+		{"both with remote ok", "both", "gdrive", "both", "gdrive", nil},
+		{"both trims remote", "both", "  gdrive  ", "both", "gdrive", nil},
+		{"remote with remote ok", "remote", "wasabi", "remote", "wasabi", nil},
+		{"both case-insensitive", "BOTH", "gdrive", "both", "gdrive", nil},
+		{"both without remote rejected", "both", "", "", "", ErrUnknownRemote},
+		{"both whitespace remote rejected", "both", "   ", "", "", ErrUnknownRemote},
+		{"remote without remote rejected", "remote", "", "", "", ErrUnknownRemote},
+		{"invalid destination rejected", "cloud", "gdrive", "", "", errSentinelAny},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDest, gotRemote, err := validateDestination(tt.dest, tt.remote)
+			switch {
+			case tt.wantErr == nil:
+				if err != nil {
+					t.Fatalf("validateDestination(%q,%q) unexpected err %v", tt.dest, tt.remote, err)
+				}
+				if gotDest != tt.wantDest || gotRemote != tt.wantRemote {
+					t.Errorf("validateDestination(%q,%q) = (%q,%q), want (%q,%q)",
+						tt.dest, tt.remote, gotDest, gotRemote, tt.wantDest, tt.wantRemote)
+				}
+			case tt.wantErr == errSentinelAny:
+				if err == nil {
+					t.Fatalf("validateDestination(%q,%q) want error, got nil", tt.dest, tt.remote)
+				}
+			default:
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("validateDestination(%q,%q) err = %v, want %v", tt.dest, tt.remote, err, tt.wantErr)
+				}
+			}
+		})
+	}
+}
+
+// errSentinelAny is a test-only marker meaning "any non-nil error is acceptable".
+var errSentinelAny = errors.New("any error")
+
+func TestDestinationLabel(t *testing.T) {
+	tests := []struct {
+		name        string
+		destination string
+		remote      string
+		want        string
+	}{
+		{"local", "local", "", "Local"},
+		{"unknown falls back to local", "weird", "", "Local"},
+		{"both", "both", "gdrive", "Local + gdrive"},
+		{"remote", "remote", "wasabi", "wasabi"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := destinationLabel(tt.destination, tt.remote); got != tt.want {
+				t.Errorf("destinationLabel(%q,%q) = %q, want %q", tt.destination, tt.remote, got, tt.want)
 			}
 		})
 	}

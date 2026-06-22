@@ -26,6 +26,62 @@ var ErrBackupInProgress = errors.New("a backup is already running for this targe
 // scheduler logs it and waits for the next opportunity.
 var ErrNoRotationTarget = errors.New("no enabled backup target available for rotation")
 
+// ErrUnknownRemote is returned when a backup is requested with an off-site
+// destination (both/remote) but the chosen rclone remote is empty or is not one
+// of the user's actual remotes. Remotes are NEVER hardcoded — they are validated
+// live against the helper's rclone config.
+var ErrUnknownRemote = errors.New("unknown or empty rclone remote")
+
+// Backup destinations. local = vzdump only; both = vzdump then copy to a remote,
+// keeping the local copy; remote = vzdump then push to a remote and drop the
+// local copy (true off-site destination).
+const (
+	DestinationLocal  = "local"
+	DestinationBoth   = "both"
+	DestinationRemote = "remote"
+)
+
+// validDestinations is the closed set of accepted backup destinations.
+var validDestinations = map[string]bool{
+	DestinationLocal:  true,
+	DestinationBoth:   true,
+	DestinationRemote: true,
+}
+
+// RemoteInfo describes one rclone remote and its capacity, for the UI. Sizes are
+// best-effort: when `rclone about` does not report a value (or fails) the field
+// is 0.
+type RemoteInfo struct {
+	Name       string
+	UsedBytes  int64
+	FreeBytes  int64
+	TotalBytes int64
+}
+
+// validateDestination normalizes and validates a backup destination + remote
+// pair. It is pure (no I/O) and table-testable: it checks the destination is in
+// the closed set and that a remote is required (non-empty) for off-site
+// destinations. The caller is responsible for the live "is this remote real?"
+// check against RcloneRemotes. Returns the cleaned destination and remote.
+func validateDestination(destination, remote string) (string, string, error) {
+	d := strings.TrimSpace(strings.ToLower(destination))
+	if d == "" {
+		d = DestinationLocal
+	}
+	if !validDestinations[d] {
+		return "", "", fmt.Errorf("invalid destination %q (allowed: local, both, remote)", destination)
+	}
+	r := strings.TrimSpace(remote)
+	if d == DestinationLocal {
+		// A remote is meaningless for a local-only backup; drop it.
+		return d, "", nil
+	}
+	if r == "" {
+		return "", "", ErrUnknownRemote
+	}
+	return d, r, nil
+}
+
 // sanitizeName cleans a target name coming from an untrusted source (Proxmox
 // guest config / vm_cache, freely settable by a guest owner) before it is stored
 // or rendered. It whitelists [A-Za-z0-9 ._-], drops anything else, trims and
@@ -92,6 +148,35 @@ func (s *BackupService) SetDiscord(d *DiscordBot) {
 // (optional; nil-safe — the feature degrades to clear errors if absent).
 func (s *BackupService) SetChannel(c *ProxmoxChannel) {
 	s.channel = c
+}
+
+// ListRemotes returns the user's rclone remotes with their capacity, for the UI.
+// The remote names come LIVE from the helper (rclone listremotes) — they are never
+// hardcoded — so a PME sees exactly its own destinations. The `about` capacity is
+// best-effort: if it fails for a given remote, the name is still returned with all
+// sizes at 0 (tolerant), so one broken backend never hides the rest of the list.
+// Returns a clear error if the channel is not configured.
+func (s *BackupService) ListRemotes() ([]RemoteInfo, error) {
+	if !s.channel.Configured() {
+		return nil, fmt.Errorf("rclone destinations unavailable: Proxmox channel not configured")
+	}
+	names, err := s.channel.RcloneRemotes()
+	if err != nil {
+		return nil, fmt.Errorf("list rclone remotes: %w", err)
+	}
+	infos := make([]RemoteInfo, 0, len(names))
+	for _, name := range names {
+		info := RemoteInfo{Name: name}
+		used, free, total, aerr := s.channel.RcloneAbout(name)
+		if aerr != nil {
+			// Tolerant: keep the remote in the list with zero sizes.
+			slog.Warn("backup: rclone about failed", "remote", name, "error", aerr)
+		} else {
+			info.UsedBytes, info.FreeBytes, info.TotalBytes = used, free, total
+		}
+		infos = append(infos, info)
+	}
+	return infos, nil
 }
 
 // Dashboard lists backups from Proxmox, auto-discovers targets, and returns each
@@ -294,10 +379,43 @@ const backupTimeout = 30 * time.Minute
 // TriggerBackup records a manual backup run, launches an async vzdump, and returns
 // the new run ID immediately. The actual dump + polling + notification happen in a
 // recover-guarded goroutine so a failure can never panic the server.
-func (s *BackupService) TriggerBackup(targetID int, username string) (int, error) {
+//
+// destination is one of {local, both, remote}. For both/remote, remote must be a
+// real rclone remote of the user (validated live against the helper); GoaCloud
+// never hardcodes remote names. ErrUnknownRemote is returned when the remote is
+// empty or not present in RcloneRemotes.
+func (s *BackupService) TriggerBackup(targetID int, destination, remote, username string) (int, error) {
+	// Validate the destination + remote pair (pure) before any I/O.
+	destination, remote, err := validateDestination(destination, remote)
+	if err != nil {
+		return 0, err
+	}
+
+	// For off-site destinations, the channel is mandatory and the remote must be
+	// one of the user's real rclone remotes (listed dynamically, never hardcoded).
+	if destination != DestinationLocal {
+		if !s.channel.Configured() {
+			return 0, fmt.Errorf("destination %q requires the Proxmox channel, which is not configured", destination)
+		}
+		remotes, rerr := s.channel.RcloneRemotes()
+		if rerr != nil {
+			return 0, fmt.Errorf("list rclone remotes: %w", rerr)
+		}
+		known := false
+		for _, rn := range remotes {
+			if rn == remote {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return 0, ErrUnknownRemote
+		}
+	}
+
 	// Look up the target (vmid + type) before doing anything else.
 	var vmidStr, targetType, name, storage string
-	err := s.db.QueryRow(
+	err = s.db.QueryRow(
 		`SELECT source_ref, target_type, name, storage FROM backup_targets WHERE id = ?`,
 		targetID).Scan(&vmidStr, &targetType, &name, &storage)
 	if err != nil {
@@ -326,13 +444,13 @@ func (s *BackupService) TriggerBackup(targetID int, username string) (int, error
 	// NOT EXISTS, so two concurrent requests cannot both win the race.
 	now := time.Now()
 	res, err := s.db.Exec(
-		`INSERT INTO backup_runs (target_id, backup_type, status, started_at, source, created_by, message)
-		 SELECT ?, ?, 'running', ?, 'manual', ?, ?
+		`INSERT INTO backup_runs (target_id, backup_type, status, started_at, source, created_by, message, destination, remote)
+		 SELECT ?, ?, 'running', ?, 'manual', ?, ?, ?, ?
 		 FROM DUAL
 		 WHERE NOT EXISTS (
 		     SELECT 1 FROM backup_runs WHERE target_id = ? AND status = 'running'
 		 )`,
-		targetID, "vzdump", now, username, "Sauvegarde à la demande lancée", targetID)
+		targetID, "vzdump", now, username, "Sauvegarde à la demande lancée", destination, remote, targetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert run: %w", err)
 	}
@@ -342,24 +460,39 @@ func (s *BackupService) TriggerBackup(targetID int, username string) (int, error
 	runID64, _ := res.LastInsertId()
 	runID := int(runID64)
 
-	go s.runBackupAsync(runID, targetID, vmid, name, pveType, storage)
+	go s.runBackupAsync(runID, targetID, vmid, name, pveType, storage, destination, remote)
 
 	return runID, nil
 }
 
-// runBackupAsync performs the vzdump, polls until completion, updates the run row
-// and notifies Discord. It is recover-guarded so it can never crash the process.
-func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType, storage string) {
+// destinationLabel renders a human-readable destination for messages/notifications:
+// "Local", "Local + <remote>" or "<remote>" (off-site only). Pure.
+func destinationLabel(destination, remote string) string {
+	switch destination {
+	case DestinationBoth:
+		return "Local + " + remote
+	case DestinationRemote:
+		return remote
+	default:
+		return "Local"
+	}
+}
+
+// runBackupAsync performs the vzdump, polls until completion, optionally pushes the
+// archive off-site (rclone), updates the run row and notifies Discord. It is
+// recover-guarded so it can never crash the process.
+func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType, storage, destination, remote string) {
+	destLabel := destinationLabel(destination, remote)
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("backup: panic in async worker recovered", "run_id", runID, "panic", rec)
 			s.finishRun(runID, "failed", 0, "", fmt.Sprintf("panic interne: %v", rec))
-			s.notifyBackup(name, vmid, "vzdump", "failed", fmt.Sprintf("panic interne: %v", rec))
+			s.notifyBackup(name, vmid, "vzdump", "failed", destLabel, fmt.Sprintf("panic interne: %v", rec))
 		}
 	}()
 
 	cfg := s.cfg
-	s.notifyBackup(name, vmid, "vzdump", "started", "")
+	s.notifyBackup(name, vmid, "vzdump", "started", destLabel, "")
 
 	upid, err := s.proxmox.CreateBackup(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
 		cfg.ProxmoxTokenSecret, pveType, strconv.Itoa(vmid), storage)
@@ -367,7 +500,7 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 		msg := fmt.Sprintf("Échec du déclenchement vzdump: %v", err)
 		slog.Error("backup: create vzdump", "run_id", runID, "vmid", vmid, "error", err)
 		s.finishRun(runID, "failed", 0, "", msg)
-		s.notifyBackup(name, vmid, "vzdump", "failed", msg)
+		s.notifyBackup(name, vmid, "vzdump", "failed", destLabel, msg)
 		return
 	}
 	slog.Info("backup: vzdump started", "run_id", runID, "vmid", vmid, "upid", upid)
@@ -379,7 +512,7 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 			msg := fmt.Sprintf("Timeout après %s (tâche %s toujours en cours)", backupTimeout, upid)
 			slog.Error("backup: vzdump timeout", "run_id", runID, "vmid", vmid, "upid", upid)
 			s.finishRun(runID, "failed", 0, "", msg)
-			s.notifyBackup(name, vmid, "vzdump", "failed", msg)
+			s.notifyBackup(name, vmid, "vzdump", "failed", destLabel, msg)
 			return
 		}
 		time.Sleep(backupPollInterval)
@@ -397,15 +530,43 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 		// status == "stopped" (or anything non-running): task finished.
 		if exitStatus == "OK" {
 			size, archive := s.lookupLatestArchive(vmid, storage)
-			msg := fmt.Sprintf("Sauvegarde terminée (tâche %s)", upid)
-			slog.Info("backup: vzdump completed", "run_id", runID, "vmid", vmid, "archive", archive, "size", size)
-			s.finishRun(runID, "completed", size, archive, msg)
-			s.notifyBackup(name, vmid, "vzdump", "completed", msg)
+			// The local vzdump succeeded. If an off-site destination was requested,
+			// push it now; a push failure means the destination objective was NOT
+			// met, so the whole run is marked failed (the local copy still exists).
+			if destination == DestinationLocal {
+				msg := fmt.Sprintf("Sauvegarde terminée (tâche %s)", upid)
+				slog.Info("backup: vzdump completed", "run_id", runID, "vmid", vmid, "archive", archive, "size", size)
+				s.finishRunDest(runID, "completed", size, archive, destination, remote, "", msg)
+				s.notifyBackup(name, vmid, "vzdump", "completed", destLabel, msg)
+				return
+			}
+
+			keepLocal := destination == DestinationBoth
+			pushedArchive, pushErr := s.channel.RclonePush(vmid, remote, keepLocal)
+			if pushErr != nil {
+				msg := fmt.Sprintf("vzdump local OK mais échec de l'envoi vers %s : %v (la copie locale est conservée)", remote, pushErr)
+				slog.Error("backup: rclone push failed", "run_id", runID, "vmid", vmid, "remote", remote, "error", pushErr)
+				s.finishRunDest(runID, "failed", size, archive, destination, remote, "failed", msg)
+				s.notifyBackup(name, vmid, "vzdump", "failed", destLabel, msg)
+				return
+			}
+			if pushedArchive != "" {
+				archive = pushedArchive
+			}
+			var msg string
+			if destination == DestinationRemote {
+				msg = fmt.Sprintf("Sauvegarde envoyée sur %s, copie locale supprimée (tâche %s)", remote, upid)
+			} else {
+				msg = fmt.Sprintf("Sauvegarde terminée localement et copiée sur %s (tâche %s)", remote, upid)
+			}
+			slog.Info("backup: vzdump + push completed", "run_id", runID, "vmid", vmid, "remote", remote, "destination", destination, "archive", archive)
+			s.finishRunDest(runID, "completed", size, archive, destination, remote, "ok", msg)
+			s.notifyBackup(name, vmid, "vzdump", "completed", destLabel, msg)
 		} else {
 			msg := fmt.Sprintf("vzdump a échoué: %s", exitStatus)
 			slog.Error("backup: vzdump failed", "run_id", runID, "vmid", vmid, "exit", exitStatus)
-			s.finishRun(runID, "failed", 0, "", msg)
-			s.notifyBackup(name, vmid, "vzdump", "failed", msg)
+			s.finishRunDest(runID, "failed", 0, "", destination, remote, "", msg)
+			s.notifyBackup(name, vmid, "vzdump", "failed", destLabel, msg)
 		}
 		return
 	}
@@ -460,7 +621,9 @@ func (s *BackupService) ReconcileRunningRuns() (int64, error) {
 	return n, nil
 }
 
-// finishRun updates a backup_runs row to its terminal state.
+// finishRun updates a backup_runs row to its terminal state, leaving the
+// destination columns untouched (they were set at insert time). Used by the
+// panic-recover path where destination context is not in scope.
 func (s *BackupService) finishRun(runID int, status string, size int64, archive, message string) {
 	_, err := s.db.Exec(
 		`UPDATE backup_runs
@@ -472,12 +635,38 @@ func (s *BackupService) finishRun(runID int, status string, size int64, archive,
 	}
 }
 
+// finishRunDest updates a backup_runs row to its terminal state and records the
+// resolved destination + remote + push outcome. pushStatus is "ok", "failed" or
+// "" (no push attempted).
+func (s *BackupService) finishRunDest(runID int, status string, size int64, archive, destination, remote, pushStatus, message string) {
+	_, err := s.db.Exec(
+		`UPDATE backup_runs
+		 SET status = ?, completed_at = ?, size_bytes = ?, archive_path = ?,
+		     destination = ?, remote = ?, push_status = ?, message = ?
+		 WHERE id = ?`,
+		status, time.Now(), size, archive, destination, remote, pushStatus, message, runID)
+	if err != nil {
+		slog.Error("backup: update run", "run_id", runID, "error", err)
+	}
+}
+
 // notifyBackup sends a Discord backup alert if a bot is configured (nil-safe).
+// destLabel is the human-readable destination (Local / Local+remote / remote) and
+// is prepended to the details so the off-site target is visible in the alert.
 // The actual network call runs in its own recover-guarded goroutine so a slow or
 // failing Discord can never sit in the critical path of finishRun / state polling.
-func (s *BackupService) notifyBackup(name string, vmid int, backupType, status, details string) {
+func (s *BackupService) notifyBackup(name string, vmid int, backupType, status, destLabel, details string) {
 	if s.discord == nil || !s.discord.IsReady() {
 		return
+	}
+	full := details
+	if destLabel != "" {
+		line := "Destination : " + destLabel
+		if full == "" {
+			full = line
+		} else {
+			full = line + "\n" + full
+		}
 	}
 	go func() {
 		defer func() {
@@ -485,7 +674,7 @@ func (s *BackupService) notifyBackup(name string, vmid int, backupType, status, 
 				slog.Error("backup: panic in Discord notification recovered", "panic", rec)
 			}
 		}()
-		if err := s.discord.SendBackupAlert(name, vmid, backupType, status, details); err != nil {
+		if err := s.discord.SendBackupAlert(name, vmid, backupType, status, full); err != nil {
 			slog.Error("backup: Discord notification failed", "error", err)
 		}
 	}()
@@ -499,7 +688,8 @@ func (s *BackupService) RecentRuns(targetID, limit int) ([]models.BackupRun, err
 	var rows *sql.Rows
 	var err error
 	base := `SELECT id, target_id, backup_type, status, started_at, completed_at,
-		size_bytes, archive_path, source, message, created_by, upid, created_at
+		size_bytes, archive_path, source, message, created_by, upid,
+		destination, remote, push_status, created_at
 		FROM backup_runs`
 	if targetID > 0 {
 		rows, err = s.db.Query(base+` WHERE target_id = ? ORDER BY id DESC LIMIT ?`, targetID, limit)
@@ -515,11 +705,11 @@ func (s *BackupService) RecentRuns(targetID, limit int) ([]models.BackupRun, err
 	for rows.Next() {
 		var run models.BackupRun
 		var started, completed sql.NullTime
-		var archive, message, createdBy, upid sql.NullString
+		var archive, message, createdBy, upid, destination, remote, pushStatus sql.NullString
 		var size sql.NullInt64
 		if err := rows.Scan(&run.ID, &run.TargetID, &run.BackupType, &run.Status,
 			&started, &completed, &size, &archive, &run.Source, &message,
-			&createdBy, &upid, &run.CreatedAt); err != nil {
+			&createdBy, &upid, &destination, &remote, &pushStatus, &run.CreatedAt); err != nil {
 			slog.Error("backup: scan run", "error", err)
 			continue
 		}
@@ -534,6 +724,9 @@ func (s *BackupService) RecentRuns(targetID, limit int) ([]models.BackupRun, err
 		run.Message = message.String
 		run.CreatedBy = createdBy.String
 		run.UPID = upid.String
+		run.Destination = destination.String
+		run.Remote = remote.String
+		run.PushStatus = pushStatus.String
 		runs = append(runs, run)
 	}
 	return runs, rows.Err()

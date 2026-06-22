@@ -164,6 +164,9 @@ func Migrate(db *sql.DB) {
 			message TEXT,
 			created_by VARCHAR(50),
 			upid VARCHAR(255) NOT NULL DEFAULT '',
+			destination VARCHAR(20) NOT NULL DEFAULT 'local',
+			remote VARCHAR(64) NOT NULL DEFAULT '',
+			push_status VARCHAR(20) NOT NULL DEFAULT '',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			INDEX idx_bruns_target (target_id),
 			INDEX idx_bruns_status (status),
@@ -221,6 +224,9 @@ func Migrate(db *sql.DB) {
 		"ALTER TABLE apps ADD COLUMN position INT NOT NULL DEFAULT 0",
 		"ALTER TABLE apps MODIFY COLUMN icon_url MEDIUMTEXT",
 		"ALTER TABLE backup_runs ADD COLUMN upid VARCHAR(255) NOT NULL DEFAULT ''",
+		"ALTER TABLE backup_runs ADD COLUMN destination VARCHAR(20) NOT NULL DEFAULT 'local'",
+		"ALTER TABLE backup_runs ADD COLUMN remote VARCHAR(64) NOT NULL DEFAULT ''",
+		"ALTER TABLE backup_runs ADD COLUMN push_status VARCHAR(20) NOT NULL DEFAULT ''",
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {

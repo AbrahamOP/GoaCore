@@ -33,6 +33,9 @@ type BackupRun struct {
 	Message     string // error or info detail
 	CreatedBy   string
 	UPID        string // Proxmox task UPID (vzdump), for cross-referencing the task log
+	Destination string // "local", "both", "remote" — where the backup is intended to live
+	Remote      string // rclone remote name (empty for destination "local")
+	PushStatus  string // "ok", "failed" or "" (no push attempted) — off-site copy outcome
 	CreatedAt   time.Time
 }
 
