@@ -30,5 +30,6 @@ type Handler struct {
 	RateLimiter  *middleware.RateLimiter
 	SSHService   *services.SSHService
 	Proxmox      *services.ProxmoxService
+	Backup       *services.BackupService
 	SSEBroker    *sse.Broker
 }

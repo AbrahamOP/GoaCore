@@ -35,6 +35,42 @@ type BackupRun struct {
 	CreatedAt   time.Time
 }
 
+// BackupEntry is one backup archive reported by the Proxmox storage content API.
+type BackupEntry struct {
+	VolID     string // e.g. "local:backup/vzdump-lxc-110-2026_06_22-03_19_36.tar.zst"
+	VMID      int
+	Type      string // "lxc" or "qemu"
+	Storage   string
+	SizeBytes int64
+	CTime     time.Time
+	Notes     string
+	Format    string
+}
+
+// BackupTargetView is a target enriched with its latest backup + RPO status, for the UI.
+type BackupTargetView struct {
+	Target            BackupTarget
+	HasBackup         bool
+	LastBackupAt      time.Time
+	LastBackupSize    int64
+	FreshnessHours    float64
+	RPOStatus         string // "ok", "warn", "breach", "none"
+	LastBackupAtStr   string
+	LastBackupSizeStr string
+	LastBackupAgeStr  string
+}
+
+// BackupSummary aggregates RPO coverage across all targets for the KPI strip.
+type BackupSummary struct {
+	Total       int
+	OK          int
+	Warn        int
+	Breach      int
+	None        int
+	AtRisk      int // Warn + Breach
+	CoveragePct int
+}
+
 // RestoreTest is a single restore/verification run against a backup.
 type RestoreTest struct {
 	ID          int

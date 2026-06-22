@@ -85,6 +85,7 @@ func main() {
 
 	// Services
 	proxmoxService := services.NewProxmoxService(db, cfg.SkipTLSVerify)
+	backupService := services.NewBackupService(db, proxmoxService, cfg)
 
 	var wazuhClient *services.WazuhClient
 	if cfg.WazuhAPIURL != "" {
@@ -180,6 +181,7 @@ func main() {
 		RateLimiter:  rateLimiter,
 		SSHService:   sshService,
 		Proxmox:      proxmoxService,
+		Backup:       backupService,
 		SSEBroker:    sseBroker,
 	}
 
