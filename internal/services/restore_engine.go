@@ -134,7 +134,12 @@ func (s *BackupService) runLevelN1(testID int, t models.BackupTarget, vmid int, 
 // it, optionally runs a healthcheck (N3), measures RTO, and ALWAYS destroys the
 // sandbox afterwards (deferred). level is "N2" or "N3".
 func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int, pveType, level string, logs *strings.Builder, logf func(string, ...any)) {
-	cfg := s.cfg
+	// One coherent Proxmox snapshot for the whole restore: this is a single logical
+	// operation (restore → boot → healthcheck → destroy), so all its API calls must
+	// target the SAME Proxmox even if a hot-reload lands mid-run. The destroy defer
+	// closes over this snapshot deliberately so cleanup hits the same host the
+	// restore wrote to.
+	pm := s.cfgStore.ProxmoxSnapshot()
 	fail := func(detail string) {
 		s.finishTest(testID, "failed", 0, 0, logs.String())
 		s.notifyRestoreTest(t.Name, 0, level, "failed", detail)
@@ -206,8 +211,8 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	defer func() {
 		defer s.releaseSandboxVMID(sandboxVMID)
 		logf("nettoyage: destruction du sandbox %d", sandboxVMID)
-		upid, derr := s.proxmox.DestroyGuest(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-			cfg.ProxmoxTokenSecret, pveType, sandboxVMID)
+		upid, derr := s.proxmox.DestroyGuest(pm.URL, pm.Node, pm.TokenID,
+			pm.TokenSecret, pveType, sandboxVMID)
 		if derr != nil {
 			logf("ATTENTION: échec destruction sandbox %d: %v", sandboxVMID, derr)
 			slog.Error("restore-test: sandbox destroy failed", "test_id", testID, "vmid", sandboxVMID, "error", derr)
@@ -215,8 +220,8 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 			return
 		}
 		if upid != "" {
-			if _, werr := s.proxmox.waitForTask(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-				cfg.ProxmoxTokenSecret, upid, 5*time.Minute, restorePollInterval); werr != nil {
+			if _, werr := s.proxmox.waitForTask(pm.URL, pm.Node, pm.TokenID,
+				pm.TokenSecret, upid, 5*time.Minute, restorePollInterval); werr != nil {
 				logf("destruction sandbox %d: %v", sandboxVMID, werr)
 				s.notifyZombieSandbox(sandboxVMID, werr)
 			}
@@ -226,15 +231,15 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	// 5. Restore into the sandbox (RTO clock starts here).
 	rtoStart := time.Now()
 	logf("restauration de l'archive vers le sandbox %d…", sandboxVMID)
-	upid, err := s.proxmox.RestoreBackup(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, pveType, archive, sandboxVMID, sandboxRestoreStorage)
+	upid, err := s.proxmox.RestoreBackup(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, pveType, archive, sandboxVMID, sandboxRestoreStorage)
 	if err != nil {
 		logf("échec lancement restauration: %v", err)
 		fail(err.Error())
 		return
 	}
-	exit, err := s.proxmox.waitForTask(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, upid, restoreTaskTimeout, restorePollInterval)
+	exit, err := s.proxmox.waitForTask(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, upid, restoreTaskTimeout, restorePollInterval)
 	if err != nil {
 		logf("restauration en échec: %v", err)
 		fail(err.Error())
@@ -248,8 +253,8 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	logf("restauration terminée (OK)")
 
 	// 6. Force the sandbox onto the isolation VLAN BEFORE starting it.
-	if err := s.proxmox.SetGuestNetworkVlan(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, pveType, sandboxVMID, restoreVlanTag); err != nil {
+	if err := s.proxmox.SetGuestNetworkVlan(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, pveType, sandboxVMID, restoreVlanTag); err != nil {
 		logf("échec isolation réseau VLAN %d: %v", restoreVlanTag, err)
 		fail("isolation réseau: " + err.Error())
 		return
@@ -257,8 +262,8 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	logf("réseau forcé sur VLAN %d", restoreVlanTag)
 
 	// 7. Start the sandbox and wait until it is running.
-	if err := s.proxmox.PowerAction(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, pveType, strconv.Itoa(sandboxVMID), "start"); err != nil {
+	if err := s.proxmox.PowerAction(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, pveType, strconv.Itoa(sandboxVMID), "start"); err != nil {
 		logf("échec démarrage sandbox: %v", err)
 		fail("démarrage: " + err.Error())
 		return
@@ -390,12 +395,12 @@ func (s *BackupService) waitSandboxRunning(vmid int, logf func(string, ...any)) 
 // the VMID actually carried by the elected archive entry (returned so the caller
 // can assert it matches the requested vmid — see M1).
 func (s *BackupService) latestArchiveVolID(vmid int, storage string) (string, string, int, bool) {
-	cfg := s.cfg
+	pm := s.cfgStore.ProxmoxSnapshot()
 	if storage == "" {
 		storage = defaultBackupStorage
 	}
-	entries, err := s.proxmox.ListBackups(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, storage)
+	entries, err := s.proxmox.ListBackups(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, storage)
 	if err != nil {
 		slog.Error("restore-test: list backups", "vmid", vmid, "error", err)
 		return "", "", 0, false
@@ -569,23 +574,23 @@ func (s *BackupService) ReconcileRunningTests() (int64, error) {
 // DestroyGuest (which refuses anything out of range, defense in depth). Returns the
 // number of sandbox guests purged.
 func (s *BackupService) ReconcileSandboxGuests() (int, error) {
-	cfg := s.cfg
-	stats, err := s.proxmox.GetStats(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, true, false)
+	pm := s.cfgStore.ProxmoxSnapshot()
+	stats, err := s.proxmox.GetStats(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, true, false)
 	if err != nil {
 		return 0, err
 	}
 
 	// destroy wraps the real DestroyGuest + task wait for the production path.
 	destroy := func(vmid int, pveType string) error {
-		upid, derr := s.proxmox.DestroyGuest(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-			cfg.ProxmoxTokenSecret, pveType, vmid)
+		upid, derr := s.proxmox.DestroyGuest(pm.URL, pm.Node, pm.TokenID,
+			pm.TokenSecret, pveType, vmid)
 		if derr != nil {
 			return derr
 		}
 		if upid != "" {
-			if _, werr := s.proxmox.waitForTask(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-				cfg.ProxmoxTokenSecret, upid, 5*time.Minute, restorePollInterval); werr != nil {
+			if _, werr := s.proxmox.waitForTask(pm.URL, pm.Node, pm.TokenID,
+				pm.TokenSecret, upid, 5*time.Minute, restorePollInterval); werr != nil {
 				return werr
 			}
 		}

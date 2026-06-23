@@ -109,11 +109,11 @@ func sanitizeName(name string, vmid int) string {
 
 // BackupService orchestrates backup inventory, RPO evaluation and restore testing.
 type BackupService struct {
-	db      *sql.DB
-	proxmox *ProxmoxService
-	cfg     *config.Config
-	discord *DiscordBot
-	channel *ProxmoxChannel
+	db       *sql.DB
+	proxmox  *ProxmoxService
+	cfgStore *config.ConfigStore
+	discord  *DiscordBot
+	channel  *ProxmoxChannel
 
 	// testInFlight tracks which target IDs currently have a restore test running,
 	// to enforce one test at a time per target (anti-concurrency).
@@ -128,12 +128,15 @@ type BackupService struct {
 	sandboxInUse map[int]bool
 }
 
-// NewBackupService creates a BackupService.
-func NewBackupService(db *sql.DB, proxmox *ProxmoxService, cfg *config.Config) *BackupService {
+// NewBackupService creates a BackupService. The *config.ConfigStore is the live
+// source of the Proxmox connection: every method that talks to Proxmox re-reads a
+// coherent snapshot (cfgStore.ProxmoxSnapshot()) at its head, so an in-app
+// re-onboarding is picked up by in-flight and future runs without a restart.
+func NewBackupService(db *sql.DB, proxmox *ProxmoxService, cfgStore *config.ConfigStore) *BackupService {
 	return &BackupService{
 		db:           db,
 		proxmox:      proxmox,
-		cfg:          cfg,
+		cfgStore:     cfgStore,
 		testInFlight: make(map[int]bool),
 		sandboxInUse: make(map[int]bool),
 	}
@@ -182,8 +185,8 @@ func (s *BackupService) ListRemotes() ([]RemoteInfo, error) {
 // Dashboard lists backups from Proxmox, auto-discovers targets, and returns each
 // target enriched with its latest backup and RPO status, plus a coverage summary.
 func (s *BackupService) Dashboard() ([]models.BackupTargetView, models.BackupSummary, error) {
-	cfg := s.cfg
-	entries, err := s.proxmox.ListBackups(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, defaultBackupStorage)
+	pm := s.cfgStore.ProxmoxSnapshot()
+	entries, err := s.proxmox.ListBackups(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret, defaultBackupStorage)
 	if err != nil {
 		// Soft-fail: still render DB targets without fresh backup data.
 		slog.Error("backup: list backups", "error", err)
@@ -491,11 +494,11 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 		}
 	}()
 
-	cfg := s.cfg
+	pm := s.cfgStore.ProxmoxSnapshot()
 	s.notifyBackup(name, vmid, "vzdump", "started", destLabel, "")
 
-	upid, err := s.proxmox.CreateBackup(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, pveType, strconv.Itoa(vmid), storage)
+	upid, err := s.proxmox.CreateBackup(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, pveType, strconv.Itoa(vmid), storage)
 	if err != nil {
 		msg := fmt.Sprintf("Échec du déclenchement vzdump: %v", err)
 		slog.Error("backup: create vzdump", "run_id", runID, "vmid", vmid, "error", err)
@@ -517,8 +520,11 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 		}
 		time.Sleep(backupPollInterval)
 
-		status, exitStatus, statErr := s.proxmox.GetTaskStatus(cfg.ProxmoxURL, cfg.ProxmoxNode,
-			cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, upid)
+		// Re-read a fresh, coherent snapshot each poll so a hot-reload mid-run is
+		// honoured on the very next iteration.
+		pm := s.cfgStore.ProxmoxSnapshot()
+		status, exitStatus, statErr := s.proxmox.GetTaskStatus(pm.URL, pm.Node,
+			pm.TokenID, pm.TokenSecret, upid)
 		if statErr != nil {
 			// Transient polling error: log and keep trying until the deadline.
 			slog.Warn("backup: poll task status", "run_id", runID, "upid", upid, "error", statErr)
@@ -575,9 +581,9 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 // lookupLatestArchive re-queries the storage for the most recent archive of vmid,
 // best-effort to fill size/path on a successful run. Errors are non-fatal.
 func (s *BackupService) lookupLatestArchive(vmid int, storage string) (int64, string) {
-	cfg := s.cfg
-	entries, err := s.proxmox.ListBackups(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID,
-		cfg.ProxmoxTokenSecret, storage)
+	pm := s.cfgStore.ProxmoxSnapshot()
+	entries, err := s.proxmox.ListBackups(pm.URL, pm.Node, pm.TokenID,
+		pm.TokenSecret, storage)
 	if err != nil {
 		slog.Warn("backup: list archives after success", "vmid", vmid, "error", err)
 		return 0, ""

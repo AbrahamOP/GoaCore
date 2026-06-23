@@ -34,6 +34,40 @@ func (p *ProxmoxService) tlsConfig() *tls.Config {
 	return &tls.Config{InsecureSkipVerify: p.skipTLS} //nolint:gosec
 }
 
+// probeNodes performs the bare GET /api2/json/nodes call and returns the decoded
+// node list. It is the shared first step of GetStats and the connection test: the
+// latter needs the raw node COUNT to distinguish "authenticated but zero nodes"
+// from a normal run, which it cannot infer from GetStats' error strings (GetStats
+// auto-resolves targetNode to the first node the moment the list is non-empty).
+// A non-2xx status is returned as an error carrying the HTTP code so the caller can
+// classify auth (401/403) vs other API failures.
+func (p *ProxmoxService) probeNodes(rawURL, tokenID, secret string) ([]models.PveNode, error) {
+	baseURL := strings.TrimRight(rawURL, "/")
+	if u, err := url.Parse(baseURL); err == nil {
+		baseURL = u.Scheme + "://" + u.Host
+	}
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: p.tlsConfig()},
+	}
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes", baseURL), nil)
+	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Network error (Nodes): %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API Error Nodes HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	var nodeList models.PveNodesList
+	if err := json.Unmarshal(body, &nodeList); err != nil {
+		return nil, fmt.Errorf("decode nodes: %v", err)
+	}
+	return nodeList.Data, nil
+}
+
 // GetStats fetches Proxmox node statistics and optionally the guest list.
 func (p *ProxmoxService) GetStats(rawURL, configuredNode, tokenID, secret string, includeGuests bool, forceRealIPs bool) (models.ProxmoxStats, error) {
 	baseURL := strings.TrimRight(rawURL, "/")

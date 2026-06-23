@@ -45,6 +45,11 @@ func main() {
 		slog.Error("Invalid configuration — refusing to start", "error", err)
 		os.Exit(1)
 	}
+	// PROXMOX_URL is no longer fatal (it can be configured/fixed in-app). Surface a
+	// malformed env value as a Warn so a typo is visible without blocking the boot.
+	if w := cfg.ProxmoxURLWarning(); w != "" {
+		slog.Warn(w)
+	}
 
 	// Database
 	db, err := database.Connect(cfg)
@@ -85,7 +90,31 @@ func main() {
 
 	// Services
 	proxmoxService := services.NewProxmoxService(db, cfg.SkipTLSVerify)
-	backupService := services.NewBackupService(db, proxmoxService, cfg)
+
+	// SSH service first: it is the AES-256-GCM crypto engine (key derived from
+	// SESSION_SECRET) reused to encrypt/decrypt the in-app Proxmox token, and it
+	// carries the Proxmox creds for the root console — which ConfigStore refreshes
+	// on a hot-reload via SetProxmoxCreds. It MUST exist before the ConfigStore and
+	// the ConnectionStore, and before ReloadProxmox (which decrypts the DB secret).
+	sshEncKey := handlers.DeriveSSHEncKey(cfg.SessionSecret)
+	sshService := services.NewSSHService(
+		db, sshEncKey,
+		cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret,
+		cfg.SkipTLSVerify,
+	)
+	sshService.MigrateEncryptSSHKeys()
+
+	// Connection store (DB persistence of in-app infra creds) + ConfigStore (live,
+	// concurrency-safe Proxmox connection, atomic.Pointer swap on reload).
+	connStore := services.NewConnectionStore(db, sshService)
+	configStore := config.NewConfigStore(cfg, sshService)
+
+	// Resolve the effective Proxmox connection: DB row wins over env when present
+	// and enabled; otherwise the env values already in cfg are the fallback. This
+	// is tolerant by design — a missing/undecipherable row never aborts the boot.
+	reloadProxmoxFromDB(connStore, configStore)
+
+	backupService := services.NewBackupService(db, proxmoxService, configStore)
 
 	// Wire the read-only Proxmox helper channel for restore testing (nil-safe:
 	// the feature degrades to clear errors if GOABACKUP_SSH_* are unset).
@@ -145,16 +174,6 @@ func main() {
 		Secure:   cfg.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
 	}
-
-	// Derive SSH encryption key from session secret
-	sshEncKey := handlers.DeriveSSHEncKey(cfg.SessionSecret)
-
-	sshService := services.NewSSHService(
-		db, sshEncKey,
-		cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret,
-		cfg.SkipTLSVerify,
-	)
-	sshService.MigrateEncryptSSHKeys()
 
 	// Discord
 	var discordBot *services.DiscordBot
@@ -223,6 +242,8 @@ func main() {
 		Proxmox:      proxmoxService,
 		Backup:       backupService,
 		SSEBroker:    sseBroker,
+		ConfigStore:  configStore,
+		Connections:  connStore,
 	}
 
 	// Background workers with context for graceful shutdown
@@ -238,7 +259,7 @@ func main() {
 	}
 
 	startWorker("cache", func(ctx context.Context) {
-		workers.StartCacheWorker(ctx, db, cfg, proxmoxService, proxmoxCache, sseBroker)
+		workers.StartCacheWorker(ctx, db, configStore, proxmoxService, proxmoxCache, sseBroker)
 	})
 	startWorker("wazuh", func(ctx context.Context) {
 		workers.StartWazuhWorker(ctx, wazuhClient, wazuhIndexer, wazuhCache, vulnCache)
@@ -247,7 +268,7 @@ func main() {
 		workers.StartSoarWorker(ctx, db, wazuhClient, wazuhIndexer, aiClient, discordBot, soarConfigState)
 	})
 	startWorker("proxmox-auth", func(ctx context.Context) {
-		workers.StartProxmoxAuthMonitor(ctx, cfg, proxmoxService, discordBot)
+		workers.StartProxmoxAuthMonitor(ctx, configStore, proxmoxService, discordBot)
 	})
 	startWorker("health", func(ctx context.Context) {
 		workers.StartHealthWorker(ctx, db)
@@ -312,4 +333,52 @@ func main() {
 	}
 
 	slog.Info("Server stopped gracefully")
+}
+
+// reloadProxmoxFromDB resolves the effective Proxmox connection at boot with the
+// precedence DB(enabled row) > env > defaults, and publishes it through the
+// ConfigStore (atomic swap + SSH creds refresh). It is intentionally tolerant:
+//
+//   - no DB row            → keep the env values already loaded in cfg (fallback),
+//   - row present+enabled  → DB values WIN (override env),
+//   - undecipherable secret → log + fall back to env, never abort the boot.
+//
+// The effective source is logged once so ops can tell where the live config came
+// from (DB / env / unconfigured).
+func reloadProxmoxFromDB(connStore *services.ConnectionStore, configStore *config.ConfigStore) {
+	conn, secret, err := connStore.GetProxmox()
+	if err != nil {
+		// Most likely an undecipherable secret (SESSION_SECRET changed). Record the
+		// errored status, do NOT override the env fallback, and keep booting.
+		slog.Warn("Proxmox connection in DB could not be loaded — falling back to env", "error", err)
+		if serr := connStore.SetStatus("proxmox", "error", "secret indéchiffrable (SESSION_SECRET modifié ?)"); serr != nil {
+			slog.Warn("Proxmox: set connection status failed", "error", serr)
+		}
+		logProxmoxSource(configStore, "env")
+		return
+	}
+	if conn == nil || !conn.Enabled {
+		// No DB override: env (already in cfg) is the source of truth.
+		logProxmoxSource(configStore, "env")
+		return
+	}
+	storage, bridge := services.ProxmoxExtra(conn)
+	configStore.ApplyProxmox(config.ProxmoxConn{
+		URL:         conn.URL,
+		Node:        conn.Node,
+		TokenID:     conn.TokenID,
+		TokenSecret: secret,
+		Storage:     storage,
+		Bridge:      bridge,
+	})
+	logProxmoxSource(configStore, "DB")
+}
+
+// logProxmoxSource logs the effective Proxmox configuration source once at boot.
+func logProxmoxSource(configStore *config.ConfigStore, source string) {
+	if configStore.ProxmoxConfigured() {
+		slog.Info("Proxmox configuration resolved", "source", source)
+	} else {
+		slog.Info("Proxmox configuration resolved", "source", "unconfigured")
+	}
 }

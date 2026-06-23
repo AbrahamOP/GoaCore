@@ -52,10 +52,10 @@ func (h *Handler) HandleSSHManager(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Error fetching SSH keys", "error", err)
 	}
 
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	var vms []models.VM
-	if cfg.ProxmoxURL != "" && cfg.ProxmoxTokenID != "" {
-		stats, err := h.Proxmox.GetStats(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, true, false)
+	if pc.URL != "" && pc.TokenID != "" {
+		stats, err := h.Proxmox.GetStats(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, true, false)
 		if err != nil {
 			slog.Error("ERROR SSH Manager: Failed to fetch VMs", "error", err)
 		} else {

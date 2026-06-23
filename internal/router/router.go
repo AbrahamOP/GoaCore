@@ -46,6 +46,12 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Use(func(next http.Handler) http.Handler {
 			return appMiddleware.AuthMiddleware(store, db, next)
 		})
+		// Onboarding gate: while Proxmox is unconfigured, steer the Proxmox-dependent
+		// pages to /onboarding/proxmox (409 on their /api/* routes). Non-blocking
+		// everywhere else (dashboard, profile, wazuh, onboarding itself).
+		r.Use(func(next http.Handler) http.Handler {
+			return appMiddleware.OnboardingGate(h.ConfigStore.ProxmoxConfigured, next)
+		})
 
 		r.Get("/", h.HandleDashboard)
 		r.Get("/report", h.HandleReport)
@@ -101,6 +107,22 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Use(func(next http.Handler) http.Handler {
 			return appMiddleware.AdminOnly(store, db, next)
 		})
+		// Same onboarding gate as the authenticated group: the Proxmox-dependent
+		// admin pages (/backups, /console, /ansible, /ssh) and their /api/* routes
+		// are gated until Proxmox is configured; /onboarding/* is exempt by allowlist.
+		r.Use(func(next http.Handler) http.Handler {
+			return appMiddleware.OnboardingGate(h.ConfigStore.ProxmoxConfigured, next)
+		})
+
+		// Onboarding — in-app Proxmox connection (page + live test + save + env import).
+		// Admin-only by group; the gate exempts these paths so they stay reachable on
+		// a fresh, unconfigured instance.
+		r.Get("/onboarding/proxmox", h.HandleOnboardingProxmox)
+		r.Post("/onboarding/proxmox", h.HandleOnboardingProxmox)
+		r.Post("/api/onboarding/proxmox/test", h.HandleOnboardingProxmoxTest)
+		r.Post("/api/onboarding/proxmox/import-env", h.HandleOnboardingImportEnv)
+		// Rollback: delete the in-app DB row, revert to the env fallback live.
+		r.Post("/api/onboarding/proxmox/delete", h.HandleOnboardingDeleteProxmox)
 
 		// Proxmox — state-changing / sensitive
 		r.Post("/api/proxmox/guest/power", h.HandleProxmoxPowerAction)

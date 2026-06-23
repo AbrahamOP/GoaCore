@@ -194,6 +194,29 @@ func Migrate(db *sql.DB) {
 			INDEX idx_rtests_verdict (verdict),
 			INDEX idx_rtests_created (created_at)
 		)`,
+		// connections holds per-service infrastructure credentials, configured
+		// in-app (onboarding) instead of (or on top of) environment variables.
+		// One row per service ('proxmox' at Jalon 1; 'wazuh'/'ai'/'discord' later
+		// are simply more rows — no schema change). Only the secret column is
+		// encrypted (AES-256-GCM, same key as SSH keys); url/node/token_id and the
+		// non-sensitive extra_json fields stay in clear. The ABSENCE of a row is the
+		// "not configured" signal — there is deliberately NO INSERT IGNORE here.
+		`CREATE TABLE IF NOT EXISTS connections (
+			service        VARCHAR(32)  NOT NULL PRIMARY KEY,
+			enabled        TINYINT(1)   NOT NULL DEFAULT 1,
+			url            VARCHAR(512) NOT NULL DEFAULT '',
+			node           VARCHAR(128) NOT NULL DEFAULT '',
+			token_id       VARCHAR(256) NOT NULL DEFAULT '',
+			secret_enc     TEXT         NOT NULL,
+			extra_json     JSON         NULL,
+			configured     TINYINT(1)   NOT NULL DEFAULT 0,
+			status         VARCHAR(16)  NOT NULL DEFAULT 'unknown',
+			last_tested_at DATETIME     NULL,
+			last_error     VARCHAR(512) NOT NULL DEFAULT '',
+			source         VARCHAR(8)   NOT NULL DEFAULT 'db',
+			updated_by     VARCHAR(128) NOT NULL DEFAULT '',
+			updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	}
 
 	for _, stmt := range coreTables {

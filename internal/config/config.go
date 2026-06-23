@@ -125,9 +125,14 @@ func Load() *Config {
 // malformed URL here (fail-fast at startup) avoids a nil-request panic later,
 // deep inside a worker, when http.NewRequest is handed a bad URL derived from
 // these values.
+//
+// PROXMOX_URL is deliberately NOT in this blocking set: since Jalon 1 the Proxmox
+// connection can be configured in-app (DB) on top of (or instead of) the env, so a
+// malformed PROXMOX_URL coming from the environment must not prevent the app from
+// booting — the operator can still fix it via onboarding. Its form is re-validated
+// at Save time (ValidateURL) and a boot-time Warn is emitted (ProxmoxURLWarning).
 func (c *Config) Validate() error {
 	for name, raw := range map[string]string{
-		"PROXMOX_URL":       c.ProxmoxURL,
 		"WAZUH_API_URL":     c.WazuhAPIURL,
 		"WAZUH_INDEXER_URL": c.WazuhIndexerURL,
 		"AI_URL":            c.AIURL,
@@ -135,12 +140,35 @@ func (c *Config) Validate() error {
 		if raw == "" {
 			continue
 		}
-		u, err := url.Parse(raw)
-		if err != nil || u.Scheme == "" || u.Host == "" {
+		if err := ValidateURL(raw); err != nil {
 			return fmt.Errorf("%s is not a valid absolute URL: %q", name, raw)
 		}
 	}
 	return nil
+}
+
+// ValidateURL reports whether raw is a well-formed absolute URL (scheme + host).
+// It is the single source of truth for URL form validation, reused by Validate()
+// and by the onboarding Save handler before persisting a Proxmox connection.
+func ValidateURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("invalid absolute URL: %q", raw)
+	}
+	return nil
+}
+
+// ProxmoxURLWarning returns a non-empty message when PROXMOX_URL is set in the
+// environment but malformed. The caller logs it as a Warn at boot so a typo is
+// visible without being fatal (the app still starts; onboarding can fix it).
+func (c *Config) ProxmoxURLWarning() string {
+	if c.ProxmoxURL == "" {
+		return ""
+	}
+	if err := ValidateURL(c.ProxmoxURL); err != nil {
+		return fmt.Sprintf("PROXMOX_URL is malformed (%q) — Proxmox features stay disabled until fixed via onboarding", c.ProxmoxURL)
+	}
+	return ""
 }
 
 func getEnv(key, fallback string) string {

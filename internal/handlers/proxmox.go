@@ -12,16 +12,17 @@ import (
 
 // HandleProxmox renders the Proxmox VM/CT overview page (served from in-memory cache).
 func (h *Handler) HandleProxmox(w http.ResponseWriter, r *http.Request) {
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	var stats models.ProxmoxStats
 
-	if h.Config.ProxmoxURL != "" && h.Config.ProxmoxTokenID != "" {
+	if pc.URL != "" && pc.TokenID != "" {
 		h.ProxmoxCache.Mutex.RLock()
 		stats = h.ProxmoxCache.Stats
 		h.ProxmoxCache.Mutex.RUnlock()
 
 		// Cache vide au premier démarrage — fetch live et peuple le cache
 		if len(stats.VMs) == 0 {
-			realStats, err := h.Proxmox.GetStats(h.Config.ProxmoxURL, h.Config.ProxmoxNode, h.Config.ProxmoxTokenID, h.Config.ProxmoxTokenSecret, true, false)
+			realStats, err := h.Proxmox.GetStats(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, true, false)
 			if err != nil {
 				slog.Error("Proxmox API Error", "error", err)
 				stats.VMs = []models.VM{{Name: fmt.Sprintf("Erreur: %v", err), Status: "error"}}
@@ -44,11 +45,11 @@ func (h *Handler) HandleProxmox(w http.ResponseWriter, r *http.Request) {
 
 // HandleProxmoxAPI returns Proxmox stats as JSON (used by the dashboard live widget).
 func (h *Handler) HandleProxmoxAPI(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	var stats models.ProxmoxStats
 
-	if cfg.ProxmoxURL != "" && cfg.ProxmoxTokenID != "" {
-		realStats, err := h.Proxmox.GetStats(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, false, false)
+	if pc.URL != "" && pc.TokenID != "" {
+		realStats, err := h.Proxmox.GetStats(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, false, false)
 		if err != nil {
 			stats.VMs = []models.VM{{Name: fmt.Sprintf("Erreur: %v", err), Status: "error"}}
 		} else {
@@ -64,7 +65,7 @@ func (h *Handler) HandleProxmoxAPI(w http.ResponseWriter, r *http.Request) {
 
 // HandleProxmoxGuestDetail returns detailed information about a single VM/CT as JSON.
 func (h *Handler) HandleProxmoxGuestDetail(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	guestType := r.URL.Query().Get("type")
 	guestID := r.URL.Query().Get("id")
 
@@ -83,8 +84,8 @@ func (h *Handler) HandleProxmoxGuestDetail(w http.ResponseWriter, r *http.Reques
 	var detail models.GuestDetail
 	var err error
 
-	if cfg.ProxmoxURL != "" && cfg.ProxmoxTokenID != "" {
-		detail, err = h.Proxmox.GetGuestDetail(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, pveType, guestID)
+	if pc.URL != "" && pc.TokenID != "" {
+		detail, err = h.Proxmox.GetGuestDetail(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -106,7 +107,7 @@ func (h *Handler) HandleProxmoxGuestDetail(w http.ResponseWriter, r *http.Reques
 
 // HandleProxmoxPowerAction sends a power command (start/stop/reboot/shutdown) to a VM/CT.
 func (h *Handler) HandleProxmoxPowerAction(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	guestType := r.URL.Query().Get("type")
 	guestID := r.URL.Query().Get("id")
 	action := r.URL.Query().Get("action")
@@ -131,12 +132,12 @@ func (h *Handler) HandleProxmoxPowerAction(w http.ResponseWriter, r *http.Reques
 		pveType = "lxc"
 	}
 
-	if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" {
+	if pc.URL == "" || pc.TokenID == "" {
 		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: action simulated"})
 		return
 	}
 
-	if err := h.Proxmox.PowerAction(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, pveType, guestID, action); err != nil {
+	if err := h.Proxmox.PowerAction(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID, action); err != nil {
 		slog.Error("Proxmox power action failed", "action", action, "id", guestID, "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -177,7 +178,7 @@ func (h *Handler) HandleProxmoxIPs(w http.ResponseWriter, r *http.Request) {
 
 // HandleProxmoxSnapshots returns the list of snapshots for a VM/CT as JSON.
 func (h *Handler) HandleProxmoxSnapshots(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	guestType := r.URL.Query().Get("type")
 	guestID := r.URL.Query().Get("id")
 
@@ -194,12 +195,12 @@ func (h *Handler) HandleProxmoxSnapshots(w http.ResponseWriter, r *http.Request)
 		pveType = "lxc"
 	}
 
-	if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" {
+	if pc.URL == "" || pc.TokenID == "" {
 		json.NewEncoder(w).Encode([]models.Snapshot{})
 		return
 	}
 
-	snapshots, err := h.Proxmox.ListSnapshots(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, pveType, guestID)
+	snapshots, err := h.Proxmox.ListSnapshots(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID)
 	if err != nil {
 		slog.Error("Proxmox list snapshots failed", "id", guestID, "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -215,7 +216,7 @@ func (h *Handler) HandleProxmoxSnapshots(w http.ResponseWriter, r *http.Request)
 
 // HandleProxmoxSnapshotCreate creates a new snapshot for a VM/CT.
 func (h *Handler) HandleProxmoxSnapshotCreate(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	guestType := r.URL.Query().Get("type")
 	guestID := r.URL.Query().Get("id")
 
@@ -242,12 +243,12 @@ func (h *Handler) HandleProxmoxSnapshotCreate(w http.ResponseWriter, r *http.Req
 		pveType = "lxc"
 	}
 
-	if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" {
+	if pc.URL == "" || pc.TokenID == "" {
 		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: snapshot created"})
 		return
 	}
 
-	if err := h.Proxmox.CreateSnapshot(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, pveType, guestID, body.Name, body.Description); err != nil {
+	if err := h.Proxmox.CreateSnapshot(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID, body.Name, body.Description); err != nil {
 		slog.Error("Proxmox create snapshot failed", "id", guestID, "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -259,7 +260,7 @@ func (h *Handler) HandleProxmoxSnapshotCreate(w http.ResponseWriter, r *http.Req
 
 // HandleProxmoxSnapshotDelete deletes a snapshot from a VM/CT.
 func (h *Handler) HandleProxmoxSnapshotDelete(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	guestType := r.URL.Query().Get("type")
 	guestID := r.URL.Query().Get("id")
 	snapName := r.URL.Query().Get("name")
@@ -277,12 +278,12 @@ func (h *Handler) HandleProxmoxSnapshotDelete(w http.ResponseWriter, r *http.Req
 		pveType = "lxc"
 	}
 
-	if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" {
+	if pc.URL == "" || pc.TokenID == "" {
 		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: snapshot deleted"})
 		return
 	}
 
-	if err := h.Proxmox.DeleteSnapshot(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, pveType, guestID, snapName); err != nil {
+	if err := h.Proxmox.DeleteSnapshot(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID, snapName); err != nil {
 		slog.Error("Proxmox delete snapshot failed", "id", guestID, "name", snapName, "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -294,7 +295,7 @@ func (h *Handler) HandleProxmoxSnapshotDelete(w http.ResponseWriter, r *http.Req
 
 // HandleProxmoxSnapshotRollback rolls back a VM/CT to a specific snapshot.
 func (h *Handler) HandleProxmoxSnapshotRollback(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	guestType := r.URL.Query().Get("type")
 	guestID := r.URL.Query().Get("id")
 	snapName := r.URL.Query().Get("name")
@@ -312,12 +313,12 @@ func (h *Handler) HandleProxmoxSnapshotRollback(w http.ResponseWriter, r *http.R
 		pveType = "lxc"
 	}
 
-	if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" {
+	if pc.URL == "" || pc.TokenID == "" {
 		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: rollback simulated"})
 		return
 	}
 
-	if err := h.Proxmox.RollbackSnapshot(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, pveType, guestID, snapName); err != nil {
+	if err := h.Proxmox.RollbackSnapshot(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID, snapName); err != nil {
 		slog.Error("Proxmox rollback snapshot failed", "id", guestID, "name", snapName, "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -329,7 +330,7 @@ func (h *Handler) HandleProxmoxSnapshotRollback(w http.ResponseWriter, r *http.R
 
 // HandleProxmoxConsoleURL returns the Proxmox noVNC console URL for a VM/CT.
 func (h *Handler) HandleProxmoxConsoleURL(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	guestType := r.URL.Query().Get("type")
 	guestID := r.URL.Query().Get("id")
 
@@ -341,7 +342,7 @@ func (h *Handler) HandleProxmoxConsoleURL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if cfg.ProxmoxURL == "" {
+	if pc.URL == "" {
 		json.NewEncoder(w).Encode(map[string]string{"error": "Proxmox not configured"})
 		return
 	}
@@ -358,17 +359,17 @@ func (h *Handler) HandleProxmoxConsoleURL(w http.ResponseWriter, r *http.Request
 
 	// Proxmox noVNC console URL format
 	consoleURL := fmt.Sprintf("%s/?console=%s&novnc=1&vmid=%s&node=%s",
-		cfg.ProxmoxURL, consoleType, guestID, cfg.ProxmoxNode)
+		pc.URL, consoleType, guestID, pc.Node)
 
 	json.NewEncoder(w).Encode(map[string]string{"url": consoleURL})
 }
 
 // HandleProxmoxCreateGuest creates a new VM or CT on the Proxmox node.
 func (h *Handler) HandleProxmoxCreateGuest(w http.ResponseWriter, r *http.Request) {
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	w.Header().Set("Content-Type", "application/json")
 
-	if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" {
+	if pc.URL == "" || pc.TokenID == "" {
 		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: creation simulated"})
 		return
 	}
@@ -405,11 +406,11 @@ func (h *Handler) HandleProxmoxCreateGuest(w http.ResponseWriter, r *http.Reques
 
 	var err error
 	if body.Type == "CT" {
-		err = h.Proxmox.CreateCT(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret,
-			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize, body.Template, cfg.ProxmoxStorage, cfg.ProxmoxBridge)
+		err = h.Proxmox.CreateCT(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret,
+			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize, body.Template, pc.Storage, pc.Bridge)
 	} else {
-		err = h.Proxmox.CreateVM(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret,
-			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize, cfg.ProxmoxStorage, cfg.ProxmoxBridge)
+		err = h.Proxmox.CreateVM(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret,
+			body.VMID, body.Name, body.Cores, body.Memory, body.DiskSize, pc.Storage, pc.Bridge)
 	}
 
 	if err != nil {
