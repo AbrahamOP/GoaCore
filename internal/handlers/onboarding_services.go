@@ -162,7 +162,7 @@ func (h *Handler) HandleOnboardingWazuhIndexerTest(w http.ResponseWriter, r *htt
 	if err := config.ValidateURL(strings.TrimSpace(req.URL)); err != nil {
 		writeJSON(w, http.StatusOK, serviceTestResponse{
 			Kind:  services.TestKindAPI,
-			Error: "URL invalide : schéma + hôte requis (ex. https://192.168.30.10:9200).",
+			Error: "URL invalide : schéma + hôte requis (ex. https://192.0.2.20:9200).",
 		})
 		return
 	}
@@ -202,7 +202,7 @@ func (h *Handler) HandleOnboardingWazuhIndexer(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := config.ValidateURL(form.URL); err != nil {
-		h.renderConnexions(w, r, "URL Wazuh Indexer invalide (schéma + hôte requis, ex. https://192.168.30.10:9200).", "")
+		h.renderConnexions(w, r, "URL Wazuh Indexer invalide (schéma + hôte requis, ex. https://192.0.2.20:9200).", "")
 		return
 	}
 	if form.User == "" || form.Password == "" {
@@ -339,7 +339,7 @@ func (h *Handler) HandleOnboardingWazuhTest(w http.ResponseWriter, r *http.Reque
 	if err := config.ValidateURL(strings.TrimSpace(req.URL)); err != nil {
 		writeJSON(w, http.StatusOK, serviceTestResponse{
 			Kind:  services.TestKindAPI,
-			Error: "URL invalide : schéma + hôte requis (ex. https://192.168.30.10:55000).",
+			Error: "URL invalide : schéma + hôte requis (ex. https://192.0.2.20:55000).",
 		})
 		return
 	}
@@ -376,7 +376,7 @@ func (h *Handler) HandleOnboardingWazuh(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := config.ValidateURL(form.URL); err != nil {
-		h.renderConnexions(w, r, "URL Wazuh API invalide (schéma + hôte requis, ex. https://192.168.30.10:55000).", "")
+		h.renderConnexions(w, r, "URL Wazuh API invalide (schéma + hôte requis, ex. https://192.0.2.20:55000).", "")
 		return
 	}
 	if form.User == "" || form.Password == "" {
@@ -528,7 +528,7 @@ func (h *Handler) HandleOnboardingAITest(w http.ResponseWriter, r *http.Request)
 		}
 	} else if u := strings.TrimSpace(req.URL); u != "" {
 		if err := config.ValidateURL(u); err != nil {
-			writeJSON(w, http.StatusOK, serviceTestResponse{Kind: services.TestKindAPI, Error: "URL Ollama invalide (schéma + hôte requis, ex. http://192.168.20.10:11434)."})
+			writeJSON(w, http.StatusOK, serviceTestResponse{Kind: services.TestKindAPI, Error: "URL Ollama invalide (schéma + hôte requis, ex. http://192.0.2.30:11434)."})
 			return
 		}
 	}
@@ -581,7 +581,7 @@ func (h *Handler) HandleOnboardingAI(w http.ResponseWriter, r *http.Request) {
 		}
 	} else { // ollama
 		if form.URL == "" {
-			h.renderConnexions(w, r, "L'URL Ollama est requise (ex. http://192.168.20.10:11434).", "")
+			h.renderConnexions(w, r, "L'URL Ollama est requise (ex. http://192.0.2.30:11434).", "")
 			return
 		}
 		if err := config.ValidateURL(form.URL); err != nil {

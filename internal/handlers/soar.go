@@ -145,6 +145,22 @@ func (h *Handler) HandleAITest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// sendEnrichedDiscordAlert is the SYNCHRONOUS test path (POST /api/soar/discord/test):
+// an admin clicks "send test", waits, and gets immediate feedback. It is deliberately
+// NOT factorized with workers.sendEnrichedAlert and deliberately does NOT go through the
+// worker's aiEnrichSem semaphore:
+//   - the two live in different packages (handlers vs workers) and the semaphore is a
+//     workers-package var scoped to the autonomous SOAR tick, where a burst of alerts can
+//     fan out N concurrent 120s Ollama calls; that gate must not be shared with a one-shot,
+//     user-initiated test (a single call, no burst) or the admin's "test" could block behind
+//     a backlog of real enrichments;
+//   - the worker version also wraps the call in a panic-recover closure to avoid leaking the
+//     only semaphore slot — a guarantee that only makes sense when the slot exists.
+//
+// Folding both into one services helper would have to thread the semaphore + recover policy
+// through as params, pushing worker-specific concurrency rules out of the worker for marginal
+// dedup (only the trailing SendAlert + "🤖 Analyse AI" formatting is truly shared). Per the
+// vague-1 guardrail ("si la factorisation est risquée, ne pas la forcer"), they stay separate.
 func (h *Handler) sendEnrichedDiscordAlert(alertCtx services.AIAlertContext, severity string) {
 	// Read the live Discord bot and AI client from the registry at emit time, so an
 	// in-app hot-reload of either is picked up without restart (both nil-guarded).

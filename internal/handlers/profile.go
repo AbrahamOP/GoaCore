@@ -34,7 +34,10 @@ func (h *Handler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	user.MFASecret = mfaSecret.String
 
-	h.Templates.ExecuteTemplate(w, "profile.html", user)
+	if err := h.Templates.ExecuteTemplate(w, "profile.html", user); err != nil {
+		slog.Error("Template error (profile.html)", "error", err)
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
 }
 
 // HandleUpdateProfile handles password change requests.
