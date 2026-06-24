@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"goacloud/internal/models"
+	"goacore/internal/models"
 	gossh "golang.org/x/crypto/ssh"
 )
 

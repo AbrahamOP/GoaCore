@@ -1,9 +1,9 @@
-# Contribuer à GoaCloud
+# Contribuer à GoaCore
 
-Merci de l'intérêt que vous portez à GoaCloud. Ce document explique comment
+Merci de l'intérêt que vous portez à GoaCore. Ce document explique comment
 construire le projet en local, lancer les tests, et proposer vos modifications.
 
-GoaCloud est un produit **auto-hébergé, mono-tenant et souverain** : pas de
+GoaCore est un produit **auto-hébergé, mono-tenant et souverain** : pas de
 télémétrie, pas de plan de contrôle SaaS, pas de phone-home. Toute contribution
 doit respecter ce principe — aucune intégration ne doit collecter de données ni
 joindre une ressource autre que celle de l'instance qui l'exécute.
@@ -16,7 +16,7 @@ joindre une ressource autre que celle de l'instance qui l'exécute.
 
 ## Licence des contributions
 
-GoaCloud est distribué sous licence **GNU Affero General Public License v3.0**
+GoaCore est distribué sous licence **GNU Affero General Public License v3.0**
 (AGPL-3.0) — voir [LICENSE](LICENSE).
 
 En proposant une contribution (Pull Request, patch, correctif), **vous acceptez

@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"goacloud/internal/config"
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
-	"goacloud/internal/workers"
+	"goacore/internal/config"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
+	"goacore/internal/workers"
 )
 
 // proxmoxTestRequest is the JSON body of the async "Tester la connexion" button.

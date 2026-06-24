@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"goacloud/internal/config"
-	"goacloud/internal/models"
+	"goacore/internal/config"
+	"goacore/internal/models"
 )
 
 // TestProxmoxExtra verifies storage/bridge extraction from a connection's

@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	"goacloud/internal/config"
+	"goacore/internal/config"
 )
 
 // TestResolveRestoreStorage_Overrides covers the no-network branches of the

@@ -8,19 +8,19 @@ import (
 	"net/http"
 	"strings"
 
-	"goacloud/deploy/goabackup"
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/deploy/goabackup"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // This file is the onboarding pipeline for the read-only Proxmox helper CHANNEL
 // (service='goabackup-channel'), the off-site backup/restore-test data path. It is
-// deliberately UNLIKE the other onboarding panels: GoaCloud GENERATES an ed25519 key
+// deliberately UNLIKE the other onboarding panels: GoaCore GENERATES an ed25519 key
 // in-app, persists the private PEM encrypted, and SERVES an auditable install SCRIPT
-// that the client admin runs IN ROOT on THEIR OWN Proxmox. GoaCloud NEVER opens an SSH
+// that the client admin runs IN ROOT on THEIR OWN Proxmox. GoaCore NEVER opens an SSH
 // session to install — there is zero trust movement app→host at install time. The
-// private key never touches the GoaCloud disk and is NEVER returned by any GET/test.
+// private key never touches the GoaCore disk and is NEVER returned by any GET/test.
 //
 // Every endpoint re-checks RequireAdmin inline (defence in depth — the route group is
 // already Admin-only). The GETs that serve the script/public key are Admin-only too:
@@ -410,7 +410,7 @@ func channelInstanceHost(r *http.Request) string {
 }
 
 // channelInstallerURL builds the absolute installer.sh URL on THIS instance from r.Host.
-// HTTPS is assumed (GoaCloud serves TLS on 8443); the self-signed cert is handled by the
+// HTTPS is assumed (GoaCore serves TLS on 8443); the self-signed cert is handled by the
 // admin's curl -k, with the published sha256 guaranteeing integrity regardless.
 func channelInstallerURL(r *http.Request) string {
 	return "https://" + channelInstanceHost(r) + "/api/onboarding/canal/installer.sh"

@@ -1,6 +1,6 @@
 # Politique de sécurité
 
-GoaCloud prend la sécurité au sérieux. Ce document décrit comment signaler une
+GoaCore prend la sécurité au sérieux. Ce document décrit comment signaler une
 vulnérabilité de manière responsable et ce que vous pouvez attendre en retour.
 
 ---
@@ -36,7 +36,7 @@ Pour accélérer le traitement, incluez si possible :
 
 ## Délais de réponse (indicatifs)
 
-GoaCloud est un projet **pré-1.0 en développement actif**, maintenu sur du temps
+GoaCore est un projet **pré-1.0 en développement actif**, maintenu sur du temps
 limité. Les délais ci-dessous sont des objectifs de bonne foi, non un engagement
 contractuel :
 
@@ -56,7 +56,7 @@ responsable (sauf demande contraire de leur part) une fois le correctif publié.
 
 ### Dans le périmètre
 
-- L'application GoaCloud elle-même : interface web, routage/authentification,
+- L'application GoaCore elle-même : interface web, routage/authentification,
   gestion de session, contrôle d'accès (rôles).
 - Les clients d'intégration : API Proxmox, API Wazuh / Wazuh Indexer, worker SOAR,
   bot Discord, enrichissement IA.
@@ -69,7 +69,7 @@ responsable (sauf demande contraire de leur part) une fois le correctif publié.
 ### Hors périmètre
 
 - Les **secrets, mots de passe et configurations propres à votre déploiement.**
-  GoaCloud est **auto-hébergé** : chaque PME gère et protège ses propres
+  GoaCore est **auto-hébergé** : chaque PME gère et protège ses propres
   identifiants — `SESSION_SECRET`, comptes et chiffrement **MySQL**, jetons
   Proxmox/Wazuh, token Discord, clés d'API IA, certificats TLS. Une fuite ou une
   mauvaise configuration de **vos** secrets n'est pas une vulnérabilité du projet.
@@ -85,7 +85,7 @@ responsable (sauf demande contraire de leur part) une fois le correctif publié.
 
 ## Modèle de sécurité — rappel
 
-GoaCloud est **souverain, mono-tenant et privacy-by-design** : zéro télémétrie,
+GoaCore est **souverain, mono-tenant et privacy-by-design** : zéro télémétrie,
 zéro phone-home, aucun accès du créateur aux données ou à l'usage des instances.
 Cela implique un partage de responsabilités clair :
 

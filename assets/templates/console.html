@@ -3,7 +3,7 @@
 
 <head>
     {{template "head-common" .}}
-    <title>GoaCloud - Console SSH</title>
+    <title>GoaCore - Console SSH</title>
     <link rel="stylesheet" href="/static/vendor/xterm.css" />
     <style>
         body { font-family: 'Outfit', sans-serif; }
@@ -324,7 +324,7 @@
                 term.loadAddon(fitAddon);
                 term.open(document.getElementById('terminal'));
                 fitAddon.fit();
-                term.write('\x1b[36mGoaCloud SSH Console\x1b[0m\r\n');
+                term.write('\x1b[36mGoaCore SSH Console\x1b[0m\r\n');
                 term.write('\x1b[90mSélectionnez une VM et une clé pour démarrer.\x1b[0m\r\n');
             }
             if (document.fonts && document.fonts.ready) {

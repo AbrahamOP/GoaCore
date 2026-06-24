@@ -1,4 +1,4 @@
-module goacloud
+module goacore
 
 go 1.22
 

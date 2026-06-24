@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"goacloud/internal/models"
+	"goacore/internal/models"
 )
 
 // HandleWazuh renders the Wazuh agents page.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"goacloud/deploy/goabackup"
+	"goacore/deploy/goabackup"
 )
 
 // TestBuildInstallerScript_EmbedsHelperVerbatimWithMatchingSHA is the integrity

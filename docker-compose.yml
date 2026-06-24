@@ -1,4 +1,4 @@
-# GoaCloud — stack de production clé en main (application + MySQL).
+# GoaCore — stack de production clé en main (application + MySQL).
 #
 # Démarrage :
 #   1. cp .env.example .env

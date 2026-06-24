@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/pquerna/otp/totp"
-	"goacloud/internal/middleware"
-	"goacloud/internal/services"
+	"goacore/internal/middleware"
+	"goacore/internal/services"
 	"golang.org/x/crypto/bcrypt"
 )
 

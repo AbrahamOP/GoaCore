@@ -3,7 +3,7 @@ package workers
 import (
 	"testing"
 
-	"goacloud/internal/config"
+	"goacore/internal/config"
 )
 
 // TestProxmoxTickAction covers the auth-monitor ticker decision (BLOQUANT #3): the

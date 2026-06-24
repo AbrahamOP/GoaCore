@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
 )
 
 // HandleAnsibleSchedules handles GET (list) and POST (create) for ansible schedules.

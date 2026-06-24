@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
 

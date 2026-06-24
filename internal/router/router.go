@@ -9,9 +9,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/sessions"
-	"goacloud/assets"
-	"goacloud/internal/handlers"
-	appMiddleware "goacloud/internal/middleware"
+	"goacore/assets"
+	"goacore/internal/handlers"
+	appMiddleware "goacore/internal/middleware"
 )
 
 // New creates and returns the application router with all routes registered.
@@ -147,7 +147,7 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Post("/api/onboarding/discord/delete", h.HandleOnboardingDiscordDelete)
 
 		// Onboarding — read-only Proxmox helper CHANNEL (goabackup) + cloud self-service.
-		// GoaCloud GENERATES the ed25519 key and SERVES an auditable install script the
+		// GoaCore GENERATES the ed25519 key and SERVES an auditable install script the
 		// admin runs in root on THEIR Proxmox; it never opens an SSH session to install.
 		// Provision (POST CSRF) generates+persists+hot-reloads the key; installer.sh/
 		// helper.sh are Admin-only GETs serving the script/helper (pubkey is public, the

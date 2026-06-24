@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"goacloud/internal/config"
+	"goacore/internal/config"
 
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -29,7 +29,7 @@ type ProxmoxChannel struct {
 
 	// keyPEM is the in-memory OpenSSH private key (the in-app-generated ed25519 key
 	// loaded from the encrypted DB row). When present it takes PRECEDENCE over keyFile:
-	// the private key NEVER touches the GoaCloud disk on this path. keyFile is the
+	// the private key NEVER touches the GoaCore disk on this path. keyFile is the
 	// retro-compat fallback (GOABACKUP_SSH_KEY_FILE — the HomeLab instance mounts it),
 	// used only when keyPEM is empty. Exactly one of the two is the live source.
 	keyPEM  []byte
@@ -306,7 +306,7 @@ func (c *ProxmoxChannel) Healthcheck(vmid int, gtype, kind, arg string) (ok bool
 }
 
 // RcloneRemotes lists the rclone remotes configured on the Proxmox host. The list
-// is fully dynamic — GoaCloud never hardcodes remote names; the user picks among
+// is fully dynamic — GoaCore never hardcodes remote names; the user picks among
 // THEIR own remotes. Helper op: "rclone-remotes" → {"ok":true,"remotes":[...]}.
 func (c *ProxmoxChannel) RcloneRemotes() ([]string, error) {
 	raw, err := c.run("rclone-remotes", 30*time.Second)

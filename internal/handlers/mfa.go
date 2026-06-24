@@ -25,7 +25,7 @@ func (h *Handler) HandleSetupMFA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "GoaCloud",
+		Issuer:      "GoaCore",
 		AccountName: username,
 	})
 	if err != nil {

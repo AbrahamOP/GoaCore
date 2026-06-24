@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 )
 
 // HandleAuditLogs renders the audit log viewer (Admin only).

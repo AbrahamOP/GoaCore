@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -180,7 +180,7 @@ func GenerateRSAKey(name string) (*models.SSHKey, error) {
 // dependency — stdlib ed25519 + the x/crypto/ssh already in go.mod.
 //
 // The returned PrivateKey is the secret the caller MUST encrypt before persisting
-// (it never touches disk on the GoaCloud side); PublicKey is the authorized_keys
+// (it never touches disk on the GoaCore side); PublicKey is the authorized_keys
 // line injected into the install script; KeyType is "ed25519".
 func GenerateEd25519Key(name string) (*models.SSHKey, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)

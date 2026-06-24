@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"goacloud/internal/config"
-	"goacloud/internal/models"
+	"goacore/internal/config"
+	"goacore/internal/models"
 )
 
 // connections.service keys. One row per service; absence of a row means

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // StartWazuhWorker starts the background worker that refreshes the Wazuh agent cache.

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"goacloud/internal/config"
-	"goacloud/internal/models"
+	"goacore/internal/config"
+	"goacore/internal/models"
 )
 
 // fallbackBackupStorage is the compiled default Proxmox storage scanned for vzdump
@@ -474,7 +474,7 @@ const backupTimeout = 30 * time.Minute
 // recover-guarded goroutine so a failure can never panic the server.
 //
 // destination is one of {local, both, remote}. For both/remote, remote must be a
-// real rclone remote of the user (validated live against the helper); GoaCloud
+// real rclone remote of the user (validated live against the helper); GoaCore
 // never hardcodes remote names. ErrUnknownRemote is returned when the remote is
 // empty or not present in RcloneRemotes.
 func (s *BackupService) TriggerBackup(targetID int, destination, remote, username string) (int, error) {

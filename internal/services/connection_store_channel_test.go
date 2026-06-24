@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"goacloud/internal/config"
-	"goacloud/internal/models"
+	"goacore/internal/config"
+	"goacore/internal/models"
 )
 
 // TestGoabackupChannelExtra verifies the non-secret pubkey/fingerprint/keytype

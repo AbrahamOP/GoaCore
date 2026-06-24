@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // HandleProxmox renders the Proxmox VM/CT overview page (served from in-memory cache).

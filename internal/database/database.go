@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"goacloud/internal/config"
+	"goacore/internal/config"
 )
 
 // Connect opens the database connection with retry logic.

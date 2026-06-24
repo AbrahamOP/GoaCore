@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"goacloud/internal/middleware"
-	"goacloud/internal/services"
+	"goacore/internal/middleware"
+	"goacore/internal/services"
 )
 
 // HandleSoar renders the SOAR page.
@@ -90,7 +90,7 @@ func (h *Handler) HandleDiscordTest(w http.ResponseWriter, r *http.Request) {
 
 	ctx := services.AIAlertContext{
 		Title:       "Test Notification",
-		Description: "Ceci est un test depuis GoaCloud SOAR avec analyse AI.",
+		Description: "Ceci est un test depuis GoaCore SOAR avec analyse AI.",
 		AgentName:   "Test-Server",
 		AgentIP:     "127.0.0.1",
 		FullLog:     "Jan 01 12:00:00 test-server sshd[123]: Failed password for invalid user admin from 203.0.113.50 port 22 ssh2",

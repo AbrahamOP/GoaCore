@@ -1,5 +1,5 @@
 self.addEventListener('push', function(event) {
-    const data = event.data ? event.data.json() : { title: 'GoaCloud', body: 'Nouvelle notification' };
+    const data = event.data ? event.data.json() : { title: 'GoaCore', body: 'Nouvelle notification' };
     event.waitUntil(
         self.registration.showNotification(data.title, {
             body: data.body,

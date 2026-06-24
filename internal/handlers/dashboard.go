@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 )
 
 // HandleDashboard renders the main dashboard page.

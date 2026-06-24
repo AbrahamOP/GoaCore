@@ -6,11 +6,11 @@ import (
 	"sync"
 
 	"github.com/gorilla/sessions"
-	"goacloud/internal/config"
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
-	"goacloud/internal/sse"
+	"goacore/internal/config"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
+	"goacore/internal/sse"
 )
 
 // Handler holds all handler dependencies (replaces global variables).

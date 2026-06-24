@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 )
 
 // noopLogf is a logf stub for tests.

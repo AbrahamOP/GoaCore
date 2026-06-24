@@ -1,10 +1,10 @@
-# GoaCloud — Feuille de route de produification
+# GoaCore — Feuille de route de produification
 
 > De **dashboard homelab** vers **produit open-source installable par une PME**.
 
 ## Vision
 
-**GoaCloud** est l'app **self-hosted & open-source** que les PME installent **chez elles** pour **suivre et gérer leur infrastructure** en totale autonomie : infra (VMs Proxmox), cybersécurité (SIEM / SOAR / IA) et backup vérifié — depuis un seul tableau de bord simple.
+**GoaCore** est l'app **self-hosted & open-source** que les PME installent **chez elles** pour **suivre et gérer leur infrastructure** en totale autonomie : infra (VMs Proxmox), cybersécurité (SIEM / SOAR / IA) et backup vérifié — depuis un seul tableau de bord simple.
 
 - **Cible** : PME qui auto-hébergent leur propre Proxmox (IT interne léger).
 - **Déploiement** : auto-hébergé chez le client, **une instance par PME (mono-tenant)**.
@@ -21,7 +21,7 @@
 
 ## État actuel (point de départ)
 
-GoaCloud est aujourd'hui un dashboard Go (chi / MySQL) très fonctionnel mais **câblé sur le homelab du créateur** : modules infra (Proxmox, console), sécurité (Wazuh, SOAR/IA, Suricata), automatisation (Ansible, SSH), **backup vérifié (GoaBackup)**, notifications Discord. Configuration majoritairement par **variables d'env**, plusieurs **valeurs en dur** (IPs, node, VLAN, VMID, chemins), et des **pré-requis manuels** sur l'hôte (helper de backup, clés). Le module GoaBackup a déjà été audité ; le reste reste à passer en revue.
+GoaCore est aujourd'hui un dashboard Go (chi / MySQL) très fonctionnel mais **câblé sur le homelab du créateur** : modules infra (Proxmox, console), sécurité (Wazuh, SOAR/IA, Suricata), automatisation (Ansible, SSH), **backup vérifié (GoaBackup)**, notifications Discord. Configuration majoritairement par **variables d'env**, plusieurs **valeurs en dur** (IPs, node, VLAN, VMID, chemins), et des **pré-requis manuels** sur l'hôte (helper de backup, clés). Le module GoaBackup a déjà été audité ; le reste reste à passer en revue.
 
 ---
 
@@ -29,7 +29,7 @@ GoaCloud est aujourd'hui un dashboard Go (chi / MySQL) très fonctionnel mais **
 
 ### Jalon 0 — Audit global & nettoyage *(prérequis open-source)*
 
-- **Objectif** : connaître l'ampleur exacte de la « dette homelab » sur **tout** GoaCloud et garantir qu'aucun secret ne sera publié.
+- **Objectif** : connaître l'ampleur exacte de la « dette homelab » sur **tout** GoaCore et garantir qu'aucun secret ne sera publié.
 - **Pourquoi maintenant** : sûr (lecture/nettoyage, pas de refactor risqué), donne la vraie image, et **publier un secret = incident** → indispensable avant l'open-source.
 - **Périmètre** :
   - Scan **secrets** dans le code **et l'historique git** (IPs, tokens, mots de passe, clés privées).
@@ -76,7 +76,7 @@ GoaCloud est aujourd'hui un dashboard Go (chi / MySQL) très fonctionnel mais **
   - `LICENSE`, `README`, documentation d'installation et d'usage, `CONTRIBUTING`.
   - **Nettoyage final** du repo et de l'historique (issu du Jalon 0) → **passage du repo en public**.
 - **Effort** : moyen · **Dépendances** : Jalon 0 (nettoyage), Jalons 1-3 (self-service).
-- **Definition of Done** : un tiers installe GoaCloud à partir du seul README en quelques minutes ; repo public sans aucun secret ni valeur perso.
+- **Definition of Done** : un tiers installe GoaCore à partir du seul README en quelques minutes ; repo public sans aucun secret ni valeur perso.
 
 ### Jalon 5 — Industrialisation continue
 

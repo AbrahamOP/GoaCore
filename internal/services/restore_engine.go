@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"goacloud/internal/config"
-	"goacloud/internal/models"
+	"goacore/internal/config"
+	"goacore/internal/models"
 )
 
 // Restore-test tuning constants.

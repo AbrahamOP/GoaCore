@@ -3,7 +3,7 @@
 
 <head>
     {{template "head-common"}}
-    <title>GoaCloud | Canal de sauvegarde</title>
+    <title>GoaCore | Canal de sauvegarde</title>
     <style>
         body { font-family: 'Outfit', sans-serif; }
         pre.cmd {
@@ -30,8 +30,8 @@
         <div class="text-center mb-8">
             <h1 class="text-3xl font-bold text-on-surface">Canal de sauvegarde</h1>
             <p class="text-on-surface-variant mt-2 text-sm">
-                GoaCloud génère une clé ed25519, vous la déployez en root sur votre Proxmox via un
-                script auditable, puis vous connectez votre cloud. GoaCloud n'ouvre jamais de session
+                GoaCore génère une clé ed25519, vous la déployez en root sur votre Proxmox via un
+                script auditable, puis vous connectez votre cloud. GoaCore n'ouvre jamais de session
                 SSH pour installer : c'est vous qui exécutez.
             </p>
             <a href="/onboarding/connexions" class="inline-block mt-3 text-xs text-primary hover:underline">← Retour aux connexions</a>
@@ -91,7 +91,7 @@
                 <div class="text-sm font-semibold text-on-surface">Générer la clé ed25519</div>
             </div>
             <p class="text-xs text-on-surface-variant mb-4 ml-10">
-                GoaCloud génère une paire de clés. La clé <strong>privée</strong> est chiffrée en base et
+                GoaCore génère une paire de clés. La clé <strong>privée</strong> est chiffrée en base et
                 ne quitte jamais le serveur ; seule la clé <strong>publique</strong> part dans le script.
                 {{with .Channel}}{{if .HasInAppKey}}<br><span class="text-orange-300">Une clé existe déjà. La régénérer révoquera l'ancienne : vous devrez relancer le script d'installation sur le Proxmox.</span>{{end}}{{end}}
             </p>
@@ -138,7 +138,7 @@
                 <div class="text-sm font-semibold text-on-surface">Vérifier l'installation</div>
             </div>
             <p class="text-xs text-on-surface-variant mb-4 ml-10">
-                Preuve de bout en bout : GoaCloud interroge le canal (<code>disk-free</code>) via la
+                Preuve de bout en bout : GoaCore interroge le canal (<code>disk-free</code>) via la
                 commande forcée. Un succès confirme que la clé est acceptée et que le helper répond.
             </p>
             <div class="ml-10">
@@ -157,7 +157,7 @@
                 <div class="text-sm font-semibold text-on-surface">Connexion cloud (off-site)</div>
             </div>
             <p class="text-xs text-on-surface-variant mb-3 ml-10">
-                Le cloud se configure côté Proxmox avec <code>rclone</code> (GoaCloud n'écrit jamais
+                Le cloud se configure côté Proxmox avec <code>rclone</code> (GoaCore n'écrit jamais
                 votre <code>rclone.conf</code> et reste en push-only). Une recette par backend :
             </p>
             <div class="ml-10 space-y-3">
@@ -189,7 +189,7 @@
         <div class="mb-5 p-4 rounded-xl bg-surface-container-high border border-outline-variant text-xs text-on-surface-variant">
             <div class="font-semibold text-on-surface mb-1">Prérequis réseau (hors script)</div>
             <ul class="list-disc ml-5 space-y-1">
-                <li>OPNsense doit autoriser SSH (port 22) depuis GoaCloud vers votre Proxmox.</li>
+                <li>OPNsense doit autoriser SSH (port 22) depuis GoaCore vers votre Proxmox.</li>
                 <li>L'utilisateur de service créé est <code>{{.ChannelUser}}</code> (shell /bin/bash, sudo restreint au helper).</li>
                 <li>Pour l'off-site, un <code>rclone.conf</code> root préexistant est requis (étape 4).</li>
             </ul>
@@ -215,7 +215,7 @@
         {{end}}{{end}}
 
         <p class="mt-6 text-center text-xs text-on-surface-variant">
-            GoaCloud — canal de sauvegarde read-only. La clé privée est chiffrée au repos et ne quitte jamais le serveur.
+            GoaCore — canal de sauvegarde read-only. La clé privée est chiffrée au repos et ne quitte jamais le serveur.
         </p>
     </div>
 

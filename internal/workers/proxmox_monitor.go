@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"goacloud/internal/config"
-	"goacloud/internal/services"
+	"goacore/internal/config"
+	"goacore/internal/services"
 )
 
 // StartProxmoxAuthMonitor starts the background worker that monitors Proxmox

@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // HandleAnsible renders the Ansible playbook manager page.

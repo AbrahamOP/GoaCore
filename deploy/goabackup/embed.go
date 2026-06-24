@@ -1,5 +1,5 @@
 // Package goabackup embeds the canonical read-only helper script
-// (goabackup-runner.sh) so it ships INSIDE the GoaCloud binary.
+// (goabackup-runner.sh) so it ships INSIDE the GoaCore binary.
 //
 // This embed is MANDATORY, not a convenience: the production Dockerfile copies
 // only cmd/, internal/, assets/, playbooks/ and ansible.cfg into the build — it

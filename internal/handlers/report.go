@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 )
 
 // ReportData holds all metrics rendered by the printable infrastructure report.

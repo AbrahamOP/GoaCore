@@ -3,11 +3,11 @@ package handlers
 import (
 	"strings"
 
-	"goacloud/deploy/goabackup"
+	"goacore/deploy/goabackup"
 )
 
 // buildInstallerScript renders the auditable, idempotent root install script the admin
-// runs on THEIR Proxmox. It is the heart of sub-lot E: GoaCloud serves this text; it
+// runs on THEIR Proxmox. It is the heart of sub-lot E: GoaCore serves this text; it
 // NEVER connects to install. The script:
 //
 //   - is a single auditable block (helper inlined as a QUOTED heredoc — no shell
@@ -46,9 +46,9 @@ func buildInstallerScript(pubkey, instanceHost string) string {
 	var b strings.Builder
 	b.WriteString(`#!/usr/bin/env bash
 # =============================================================================
-# GoaCloud — installation du canal de sauvegarde (goabackup) — À EXÉCUTER EN ROOT
+# GoaCore — installation du canal de sauvegarde (goabackup) — À EXÉCUTER EN ROOT
 # =============================================================================
-# Ce script est SERVI par votre instance GoaCloud (` + host + `). Il n'ouvre AUCUNE
+# Ce script est SERVI par votre instance GoaCore (` + host + `). Il n'ouvre AUCUNE
 # connexion sortante : la seule donnée injectée par le serveur est la clé PUBLIQUE
 # ed25519 ci-dessous. Relisez-le entièrement avant de l'exécuter.
 #
@@ -145,7 +145,7 @@ ok "Journal initialisé ($LOG_PATH, 600)."
 if [[ ! -f /root/.config/rclone/rclone.conf ]]; then
     info "rclone non configuré (/root/.config/rclone/rclone.conf absent)."
     info "  → La sauvegarde locale et les tests de restauration fonctionnent déjà."
-    info "  → Pour l'off-site, lancez 'rclone config' (voir la section Connexion cloud dans GoaCloud)."
+    info "  → Pour l'off-site, lancez 'rclone config' (voir la section Connexion cloud dans GoaCore)."
 fi
 
 # --- 7. Self-test : disk-free via le forced-command (preuve de bout en bout) ---
@@ -155,7 +155,7 @@ if printf '%s' "$selftest_out" | grep -q '"ok":true'; then
     ok "Self-test réussi : le canal répond."
     printf '     %s\n' "$selftest_out"
     echo
-    ok "Installation terminée. Revenez dans GoaCloud et cliquez « Vérifier l'installation »."
+    ok "Installation terminée. Revenez dans GoaCore et cliquez « Vérifier l'installation »."
     exit 0
 else
     err "Self-test ÉCHOUÉ. Le helper est installé mais n'a pas répondu correctement."

@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	"goacloud/internal/config"
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/config"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // This file is the onboarding pipeline for the registry-held services (Wazuh API,

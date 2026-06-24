@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // HandleSSHManager handles the SSH key manager page (GET) and key generation/update (POST).

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"testing"
 
-	"goacloud/deploy/goabackup"
-	"goacloud/internal/config"
+	"goacore/deploy/goabackup"
+	"goacore/internal/config"
 )
 
 // helperRunnerPath returns the path to the canonical goabackup helper script the Go

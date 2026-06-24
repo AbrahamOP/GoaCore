@@ -1,4 +1,4 @@
-# GoaCloud
+# GoaCore
 
 > **Single pane of glass** open-source et auto-hébergé pour les PME qui exploitent leur propre Proxmox : infrastructure, sécurité (SIEM/SOAR) et **backup vérifié** — réuni dans un seul tableau de bord, sans télémétrie.
 
@@ -7,15 +7,15 @@
 ![Statut](https://img.shields.io/badge/Statut-pré--1.0-orange)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
 
-GoaCloud unifie trois domaines habituellement éclatés entre plusieurs outils — **gestion d'infrastructure**, **opérations de sécurité** et **sauvegardes dont la restaurabilité est réellement prouvée par un test de restauration** — en une suite intégrée que la PME installe chez elle et configure entièrement depuis l'interface web.
+GoaCore unifie trois domaines habituellement éclatés entre plusieurs outils — **gestion d'infrastructure**, **opérations de sécurité** et **sauvegardes dont la restaurabilité est réellement prouvée par un test de restauration** — en une suite intégrée que la PME installe chez elle et configure entièrement depuis l'interface web.
 
-> **À savoir avant de commencer** — GoaCloud est fonctionnel mais reste **pré-1.0, en développement actif**. Le code est **open-source (AGPL-3.0) et public** ; l'assistant d'installation clé en main et le polish produit sont en cours (voir [Roadmap](#roadmap)). Ce n'est pas (encore) un produit commercial fini et éprouvé en production à large échelle.
+> **À savoir avant de commencer** — GoaCore est fonctionnel mais reste **pré-1.0, en développement actif**. Le code est **open-source (AGPL-3.0) et public** ; l'assistant d'installation clé en main et le polish produit sont en cours (voir [Roadmap](#roadmap)). Ce n'est pas (encore) un produit commercial fini et éprouvé en production à large échelle.
 
 ---
 
-## Pourquoi GoaCloud
+## Pourquoi GoaCore
 
-GoaCloud est conçu **souverain et privacy-by-design**, et ce n'est pas un argument marketing :
+GoaCore est conçu **souverain et privacy-by-design**, et ce n'est pas un argument marketing :
 
 - **Zéro télémétrie, zéro phone-home.** L'audit du Jalon 0 a explicitement constaté « 0 secret, 0 phone-home backend ». Le créateur n'a **aucun accès** aux données ni à l'usage des clients. Principe non négociable.
 - **Données 100 % chez la PME.** Les secrets sont chiffrés dans **votre** MySQL, les sauvegardes vont sur **votre** stockage Proxmox et **votre** cloud (remote rclone), l'IA peut pointer vers un Ollama auto-hébergé ou tout endpoint compatible OpenAI que **vous** contrôlez.
@@ -59,7 +59,7 @@ GoaCloud est conçu **souverain et privacy-by-design**, et ce n'est pas un argum
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  GoaCloud                                     [Admin ▾]        │
+│  GoaCore                                     [Admin ▾]        │
 ├──────────┬───────────────────────────────────────────────────┤
 │ Infra    │  VMs: 12 running · 3 stopped     CPU ▓▓▓░ 38%      │
 │ Sécurité │  Alertes Wazuh: 4 high · 21 med   RAM ▓▓▓▓▓ 71%    │
@@ -150,7 +150,7 @@ La précédence est **ligne DB > env > non configuré**, donc une config existan
 
 L'onboarding du canal GoaBackup est un assistant guidé :
 
-1. GoaCloud **génère une clé ed25519** dans l'app et stocke la clé privée (PEM) chiffrée.
+1. GoaCore **génère une clé ed25519** dans l'app et stocke la clé privée (PEM) chiffrée.
 2. Il présente une **commande d'installation root copier-coller** (URL dérivée de l'hôte, jamais un domaine en dur) accompagnée du **SHA-256** du helper pour vérifier l'intégrité.
 3. L'admin exécute le script sur **son** Proxmox — **l'app ne se connecte jamais en SSH pour installer**, elle ne fait que servir un script auditable.
 4. **« Vérifier l'installation »** prouve le canal de bout en bout (disk-free via le helper SSH en forced-command).
@@ -188,7 +188,7 @@ Le test de restauration est **destructif par nature** : il restaure dans une pla
 - **Pré-1.0, développement actif** : le code est public (AGPL-3.0), mais l'installation clé en main et le polish produit sont encore en cours (**Jalon 4**). Ce n'est pas une release stable largement déployée.
 - **Centré Proxmox** : la gestion des VMs, la console, le canal GoaBackup et la sandbox de test de restauration sont câblés spécifiquement pour Proxmox VE. Ce n'est pas un gestionnaire d'hyperviseur générique.
 - **Off-site cloud via rclone** : suppose que rclone est configuré sur l'hôte Proxmox par l'admin. Les remotes type S3 / Backblaze sont self-service, mais la mise en place **Google Drive est guidée** (l'admin lance encore `rclone config` sur l'hôte pour l'étape OAuth headless) — **pas** un flux OAuth complet in-app.
-- **Wazuh, IA et Discord sont optionnels** : sans aucun configuré, GoaCloud est essentiellement un dashboard Proxmox + backup.
+- **Wazuh, IA et Discord sont optionnels** : sans aucun configuré, GoaCore est essentiellement un dashboard Proxmox + backup.
 - **HTTPS auto-signé** par défaut (destiné à être placé derrière un reverse proxy ou remplacé).
 - **Couverture de tests partielle**, concentrée sur les chemins backup / restore / connection-store / canal ; beaucoup de handlers ne sont pas encore couverts.
 - Le pipeline CI/CD fourni est taillé pour l'environnement self-hosted de l'auteur et **n'est pas** un exemple générique pour utilisateurs finaux.
@@ -197,7 +197,7 @@ Le test de restauration est **destructif par nature** : il restaure dans une pla
 
 ## Roadmap
 
-GoaCloud passe d'un dashboard homelab à un produit open-source installable par une PME. Détails dans [ROADMAP.md](ROADMAP.md).
+GoaCore passe d'un dashboard homelab à un produit open-source installable par une PME. Détails dans [ROADMAP.md](ROADMAP.md).
 
 - **Jalon 0** — Audit global & nettoyage *(prérequis open-source)* ✅
 - **Jalon 1** — Onboarding infrastructure in-app ✅
@@ -215,8 +215,8 @@ Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour le workflow de contribution et [SEC
 
 ## License
 
-GoaCloud est distribué sous licence **GNU Affero General Public License v3.0** (AGPL-3.0) — voir [LICENSE](LICENSE).
+GoaCore est distribué sous licence **GNU Affero General Public License v3.0** (AGPL-3.0) — voir [LICENSE](LICENSE).
 
 La **clause réseau** de l'AGPL impose que toute version modifiée mise à disposition via un réseau (y compris en SaaS) en publie les sources : elle préserve la souveraineté du modèle et empêche la fermeture du code en produit propriétaire. C'est un choix délibéré, cohérent avec le positionnement souverain du projet.
 
-Copyright © 2026 GoaCloud.
+Copyright © 2026 GoaCore.

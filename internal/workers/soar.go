@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // StartSoarWorker starts the background worker that checks SOAR events and sends alerts.

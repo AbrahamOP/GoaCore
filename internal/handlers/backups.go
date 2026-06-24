@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // HandleBackupPage renders the backup management & verification dashboard.

@@ -14,17 +14,17 @@ import (
 	"time"
 
 	"github.com/gorilla/sessions"
-	"goacloud/assets"
-	"goacloud/internal/config"
-	"goacloud/internal/database"
-	"goacloud/internal/handlers"
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/router"
-	"goacloud/internal/server"
-	"goacloud/internal/services"
-	"goacloud/internal/sse"
-	"goacloud/internal/workers"
+	"goacore/assets"
+	"goacore/internal/config"
+	"goacore/internal/database"
+	"goacore/internal/handlers"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/router"
+	"goacore/internal/server"
+	"goacore/internal/services"
+	"goacore/internal/sse"
+	"goacore/internal/workers"
 )
 
 func main() {

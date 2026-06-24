@@ -1,5 +1,5 @@
 // ========================================
-// GoaCloud — Theme toggle + SSE connection
+// GoaCore — Theme toggle + SSE connection
 // ========================================
 
 // ---- Theme ----
@@ -85,7 +85,7 @@ function enableVMNotifications() {
             const prev = knownVMStatus[vm.ID];
             if (prev && prev !== vm.Status) {
                 const action = vm.Status === 'running' ? 'd\u00e9marr\u00e9e' : 'arr\u00eat\u00e9e';
-                sendLocalNotif('GoaCloud - VM ' + action, vm.Name + ' (#' + vm.ID + ') est maintenant ' + action);
+                sendLocalNotif('GoaCore - VM ' + action, vm.Name + ' (#' + vm.ID + ') est maintenant ' + action);
             }
             knownVMStatus[vm.ID] = vm.Status;
         });

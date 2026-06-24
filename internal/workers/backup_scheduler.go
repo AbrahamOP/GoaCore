@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"goacloud/internal/services"
+	"goacore/internal/services"
 )
 
 // StartBackupTestScheduler runs a nightly rotation of restore tests: once per day,

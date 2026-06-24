@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"goacloud/internal/services"
+	"goacore/internal/services"
 )
 
 // StartAnsibleScheduler checks for due ansible schedules every 60 seconds and executes them.

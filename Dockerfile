@@ -17,8 +17,8 @@ COPY assets/ ./assets/
 ARG CACHEBUST=1
 COPY playbooks/ ./playbooks/
 # deploy/ contient le helper goabackup-runner.sh embarqué par //go:embed dans
-# goacloud/deploy/goabackup, importé transitivement par cmd/server. Sans cette copie,
-# `go build ./cmd/server` échoue ("package goacloud/deploy/goabackup is not in std").
+# goacore/deploy/goabackup, importé transitivement par cmd/server. Sans cette copie,
+# `go build ./cmd/server` échoue ("package goacore/deploy/goabackup is not in std").
 # Le stage final n'en a pas besoin : l'embed est compilé dans le binaire.
 COPY deploy/ ./deploy/
 

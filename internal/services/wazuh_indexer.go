@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 )
 
 // WazuhIndexerClient is an HTTP client for the Wazuh Indexer (OpenSearch) API.

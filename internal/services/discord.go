@@ -91,7 +91,7 @@ func (d *DiscordBot) SendAlert(title, message, severity string) error {
 		Description: message,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Security",
+			Text: "GoaCore Security",
 		},
 	}
 
@@ -127,7 +127,7 @@ func (d *DiscordBot) SendAnsibleAlert(playbook, vmName string, vmid int, status,
 		Description: description,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Ansible Scheduler",
+			Text: "GoaCore Ansible Scheduler",
 		},
 	}
 
@@ -178,7 +178,7 @@ func (d *DiscordBot) SendBackupAlert(target string, vmid int, backupType, status
 		Description: description,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Backup",
+			Text: "GoaCore Backup",
 		},
 	}
 
@@ -228,7 +228,7 @@ func (d *DiscordBot) SendRestoreTestAlert(target string, vmid int, level, verdic
 		Description: description,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Restore Test",
+			Text: "GoaCore Restore Test",
 		},
 	}
 
@@ -262,7 +262,7 @@ func (d *DiscordBot) SendZombieSandboxAlert(vmid int, detail string) error {
 		Description: description,
 		Color:       0xff0000, // Red — needs intervention
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Restore Test",
+			Text: "GoaCore Restore Test",
 		},
 	}
 
@@ -291,7 +291,7 @@ func (d *DiscordBot) SendAuthAlert(title, message string, blocked bool) error {
 		Description: message,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Auth Monitor",
+			Text: "GoaCore Auth Monitor",
 		},
 	}
 

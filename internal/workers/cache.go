@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"goacloud/internal/config"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
-	"goacloud/internal/sse"
+	"goacore/internal/config"
+	"goacore/internal/models"
+	"goacore/internal/services"
+	"goacore/internal/sse"
 )
 
 // StartCacheWorker starts the background worker that updates the VM IP cache and Proxmox stats cache.
