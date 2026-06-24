@@ -1,6 +1,8 @@
 # Binaries
 main
 goacloud
+server
+bin/
 *.exe
 *.exe~
 *.dll

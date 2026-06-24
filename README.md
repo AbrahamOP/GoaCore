@@ -9,7 +9,7 @@
 
 GoaCloud unifie trois domaines habituellement éclatés entre plusieurs outils — **gestion d'infrastructure**, **opérations de sécurité** et **sauvegardes dont la restaurabilité est réellement prouvée par un test de restauration** — en une suite intégrée que la PME installe chez elle et configure entièrement depuis l'interface web.
 
-> **À savoir avant de commencer** — GoaCloud est fonctionnel mais reste **pré-1.0, en développement actif**. Le dépôt est aujourd'hui **privé** ; son ouverture en open-source et un assistant d'installation clé en main constituent le prochain jalon (voir [Roadmap](#roadmap)). Ce n'est pas (encore) un produit commercial fini et éprouvé en production large échelle.
+> **À savoir avant de commencer** — GoaCloud est fonctionnel mais reste **pré-1.0, en développement actif**. Le code est **open-source (AGPL-3.0) et public** ; l'assistant d'installation clé en main et le polish produit sont en cours (voir [Roadmap](#roadmap)). Ce n'est pas (encore) un produit commercial fini et éprouvé en production à large échelle.
 
 ---
 
@@ -110,15 +110,15 @@ Seules quelques variables sont requises au démarrage. Tout le reste (Proxmox, W
 cp .env.example .env
 ```
 
-| Variable           | Description                                                                                  |
-|--------------------|----------------------------------------------------------------------------------------------|
-| `SESSION_SECRET`   | **Secret aléatoire fort.** L'app **refuse de démarrer** sur la valeur par défaut.            |
-| `DB_USER`          | Utilisateur MySQL                                                                             |
-| `DB_PASSWORD`      | Mot de passe MySQL                                                                            |
-| `DB_ROOT_PASSWORD` | Mot de passe root MySQL                                                                       |
-| `DB_NAME`          | Nom de la base (par défaut : `goacloud`)                                                      |
+| Variable           | Description                                                                                                            |
+|--------------------|----------------------------------------------------------------------------------------------------------------------|
+| `SESSION_SECRET`   | **Secret aléatoire fort** (≥ 32 caractères). L'app **refuse de démarrer** si la valeur est vide, trop courte ou un placeholder connu. Générez-la avec `openssl rand -hex 32`. |
+| `DB_USER`          | Utilisateur MySQL                                                                                                     |
+| `DB_PASSWORD`      | Mot de passe MySQL **fort** (ex. `openssl rand -base64 24`)                                                           |
+| `DB_ROOT_PASSWORD` | Mot de passe root MySQL **fort**                                                                                      |
+| `DB_NAME`          | Nom de la base (par défaut : `goacloud`)                                                                              |
 
-> Dans `.env.example`, `PROXMOX_STORAGE` et `PROXMOX_BRIDGE` sont laissés vides pour auto-détection via l'API Proxmox ; le nœud Proxmox par défaut est le générique `pve`.
+> Toutes les autres variables (Proxmox, Wazuh, IA, Discord, canal GoaBackup) sont **optionnelles au boot** et commentées dans `.env.example` — elles se configurent depuis l'interface (précédence base > env). `PROXMOX_STORAGE` / `PROXMOX_BRIDGE` laissés vides = auto-détection via l'API Proxmox ; le nœud Proxmox par défaut est le générique `pve`.
 
 ### 3. Démarrer la stack
 
@@ -185,7 +185,7 @@ Le test de restauration est **destructif par nature** : il restaure dans une pla
 
 ## Limites connues
 
-- **Pré-1.0, développement actif** : le dépôt est encore **privé**. Son ouverture + un assistant d'installation clé en main constituent le **Jalon 4** (en attente). Ce n'est pas une release stable largement déployée.
+- **Pré-1.0, développement actif** : le code est public (AGPL-3.0), mais l'installation clé en main et le polish produit sont encore en cours (**Jalon 4**). Ce n'est pas une release stable largement déployée.
 - **Centré Proxmox** : la gestion des VMs, la console, le canal GoaBackup et la sandbox de test de restauration sont câblés spécifiquement pour Proxmox VE. Ce n'est pas un gestionnaire d'hyperviseur générique.
 - **Off-site cloud via rclone** : suppose que rclone est configuré sur l'hôte Proxmox par l'admin. Les remotes type S3 / Backblaze sont self-service, mais la mise en place **Google Drive est guidée** (l'admin lance encore `rclone config` sur l'hôte pour l'étape OAuth headless) — **pas** un flux OAuth complet in-app.
 - **Wazuh, IA et Discord sont optionnels** : sans aucun configuré, GoaCloud est essentiellement un dashboard Proxmox + backup.
@@ -203,13 +203,13 @@ GoaCloud passe d'un dashboard homelab à un produit open-source installable par 
 - **Jalon 1** — Onboarding infrastructure in-app ✅
 - **Jalon 2** — Dé-câbler les valeurs en dur + auto-détection ✅
 - **Jalon 3** — Canal & destinations de backup en self-service ✅
-- **Jalon 4** — Installation clé en main + **publication open-source** ⏳
+- **Jalon 4** — Installation clé en main + **publication open-source** 🔄 *(en cours — repo public & AGPL-3.0, install en finalisation)*
 
 ---
 
 ## Contributing
 
-Les modalités de contribution seront publiées avec l'ouverture du dépôt (Jalon 4).
+Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour le workflow de contribution et [SECURITY.md](SECURITY.md) pour la divulgation responsable des vulnérabilités.
 
 ---
 

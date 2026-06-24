@@ -37,8 +37,18 @@ func main() {
 	if cfg.SkipTLSVerify {
 		slog.Warn("SKIP_TLS_VERIFY=true — TLS certificate verification disabled")
 	}
-	if cfg.SessionSecret == "super-secret-key-change-me" {
-		slog.Error("SESSION_SECRET is the default value — refusing to start. Set a strong secret via SESSION_SECRET env var.")
+	// Refuse to boot on a weak/known SESSION_SECRET. This key also derives the
+	// AES-256-GCM key that encrypts in-app secrets (Proxmox token, SSH keys, …),
+	// so a copy-paste-without-edit deployment must never start with a publicly
+	// known value. Rejects: empty, the built-in config default, the .env.example
+	// placeholder, and anything shorter than 32 chars (≈ openssl rand -hex 16).
+	knownWeakSecrets := map[string]bool{
+		"":                                  true,
+		"super-secret-key-change-me":        true, // internal/config default
+		"change-me-to-a-long-random-secret": true, // .env.example placeholder
+	}
+	if knownWeakSecrets[cfg.SessionSecret] || len(cfg.SessionSecret) < 32 {
+		slog.Error("SESSION_SECRET is missing, a known placeholder, or too short — refusing to start. Generate one with: openssl rand -hex 32")
 		os.Exit(1)
 	}
 	if err := cfg.Validate(); err != nil {
