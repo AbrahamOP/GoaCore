@@ -94,7 +94,7 @@ GoaCloud est aujourd'hui un dashboard Go (chi / MySQL) très fonctionnel mais **
 | 0 — Audit global & nettoyage | ✅ Fait | Audit (0 secret, 0 phone-home backend) + nettoyage : CDN vendorisés, CSP durcie, storage/bridge configurables, user SSH générique |
 | 1 — Onboarding infra in-app | ✅ Fait | **Proxmox + Wazuh + AI + Discord** : config in-app chiffrée, test live, hot-reload (registry). Discord websocket reconnecté à chaud. OnboardingGate + migration env→DB |
 | 2 — Dé-câbler + auto-détection | ✅ Fait | storage/VLAN/bridge sandbox résolus depuis la connexion ; helper agnostique LVM/ZFS/dir ; cryptcheck off-site portable ; garde VMID en dur + test anti-drift en CI ; doc déployée |
-| 3 — Canal & destinations self-service | ⏳ À venir | |
+| 3 — Canal & destinations self-service | ✅ Fait | clé ed25519 générée in-app (chiffrée DB) ; installeur root auditable servi par l'app (jamais d'exécution distante) ; helper embarqué ; canal hot-reload ; cloud « guider + détecter » (S3/Backblaze self-service, GDrive guidé) |
 | 4 — Install clé en main + open-source | ⏳ À venir | Passage du repo en public |
 | 5 — Industrialisation continue | ⏳ À venir | Transverse |
 
