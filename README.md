@@ -3,7 +3,7 @@
 GoaCloud is a self-hosted **Single Pane of Glass** dashboard for managing your homelab infrastructure. It brings together Proxmox VM management, Wazuh SIEM security, Ansible automation, SSH key management, and AI-powered SOAR — all in one place.
 
 ![Go](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green)
+![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
 
 ## Features
@@ -173,4 +173,4 @@ docker-compose up -d --build app
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GNU AGPL-3.0 — see [LICENSE](LICENSE).
