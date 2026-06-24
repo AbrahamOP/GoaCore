@@ -3,6 +3,7 @@ package services
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -17,22 +18,31 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 
 	gossh "golang.org/x/crypto/ssh"
 )
 
 // SSHService handles SSH key management and deployment.
+//
+// The Proxmox credentials (used by the root-console key-deploy path) are NOT
+// frozen at construction: they are guarded by pmMu and can be refreshed at
+// runtime via SetProxmoxCreds when the operator re-onboards Proxmox in-app, so a
+// hot-reload reaches the console path too. Every internal read of those fields
+// goes through proxmoxCreds() under an RLock.
 type SSHService struct {
-	db                 *sql.DB
-	encKey             [32]byte
+	db      *sql.DB
+	encKey  [32]byte
+	skipTLS bool
+
+	pmMu               sync.RWMutex
 	proxmoxURL         string
 	proxmoxTokenID     string
 	proxmoxTokenSecret string
 	proxmoxNode        string
-	skipTLS            bool
 }
 
 // NewSSHService creates a new SSHService.
@@ -46,6 +56,26 @@ func NewSSHService(db *sql.DB, encKey [32]byte, proxmoxURL, proxmoxNode, proxmox
 		proxmoxNode:        proxmoxNode,
 		skipTLS:            skipTLS,
 	}
+}
+
+// SetProxmoxCreds atomically refreshes the Proxmox credentials used by the root
+// console / key-deploy path. It is called by ConfigStore.ApplyProxmox on a
+// hot-reload so the console follows the newly onboarded Proxmox without a restart.
+func (s *SSHService) SetProxmoxCreds(url, node, tokenID, secret string) {
+	s.pmMu.Lock()
+	defer s.pmMu.Unlock()
+	s.proxmoxURL = url
+	s.proxmoxNode = node
+	s.proxmoxTokenID = tokenID
+	s.proxmoxTokenSecret = secret
+}
+
+// proxmoxCreds returns a coherent snapshot of the Proxmox credentials under an
+// RLock, so a concurrent SetProxmoxCreds can never tear a read.
+func (s *SSHService) proxmoxCreds() (url, node, tokenID, secret string) {
+	s.pmMu.RLock()
+	defer s.pmMu.RUnlock()
+	return s.proxmoxURL, s.proxmoxNode, s.proxmoxTokenID, s.proxmoxTokenSecret
 }
 
 func (s *SSHService) tlsConfig() *tls.Config {
@@ -132,6 +162,52 @@ func GenerateRSAKey(name string) (*models.SSHKey, error) {
 		Name:          name,
 		KeyType:       "RSA",
 		PublicKey:     strings.TrimSpace(publicPEM),
+		PrivateKey:    privatePEM,
+		Fingerprint:   fingerprint,
+		AssociatedVMs: "",
+	}, nil
+}
+
+// GenerateEd25519Key creates an ed25519 key pair for the goabackup channel.
+//
+// It is the modern counterpart of GenerateRSAKey, chosen for the in-app channel
+// key: the private key is emitted as an OpenSSH-format PEM (gossh.MarshalPrivateKey,
+// available in x/crypto v0.31.0) so it round-trips through gossh.ParsePrivateKey in
+// ProxmoxChannel exactly like the file-based key it replaces; the public key is the
+// single-line authorized_keys form (gossh.NewPublicKey + MarshalAuthorizedKey, the
+// same helpers GenerateRSAKey uses), and the fingerprint is the SHA256 form shown in
+// the UI (gossh.FingerprintSHA256, the format OpenSSH prints today). Zero new
+// dependency — stdlib ed25519 + the x/crypto/ssh already in go.mod.
+//
+// The returned PrivateKey is the secret the caller MUST encrypt before persisting
+// (it never touches disk on the GoaCore side); PublicKey is the authorized_keys
+// line injected into the install script; KeyType is "ed25519".
+func GenerateEd25519Key(name string) (*models.SSHKey, error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate ed25519 key: %w", err)
+	}
+
+	// OpenSSH-format PEM ("OPENSSH PRIVATE KEY") so the channel parses it with the
+	// same gossh.ParsePrivateKey path it uses for the file-based key today.
+	privBlock, err := gossh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		return nil, fmt.Errorf("marshal ed25519 private key: %w", err)
+	}
+	privatePEM := string(pem.EncodeToMemory(privBlock))
+
+	publicKey, err := gossh.NewPublicKey(pub)
+	if err != nil {
+		return nil, fmt.Errorf("wrap ed25519 public key: %w", err)
+	}
+	publicLine := string(gossh.MarshalAuthorizedKey(publicKey))
+
+	fingerprint := gossh.FingerprintSHA256(publicKey)
+
+	return &models.SSHKey{
+		Name:          name,
+		KeyType:       "ed25519",
+		PublicKey:     strings.TrimSpace(publicLine),
 		PrivateKey:    privatePEM,
 		Fingerprint:   fingerprint,
 		AssociatedVMs: "",
@@ -260,7 +336,10 @@ type pveNodesListInternal struct {
 
 // DeployKeyToProxmox deploys a public key to a Proxmox VM/CT via the API.
 func (s *SSHService) DeployKeyToProxmox(vmid int, vmType string, pubKey string) error {
-	if s.proxmoxURL == "" || s.proxmoxTokenID == "" {
+	// Read a coherent credentials snapshot once under the RLock; a concurrent
+	// SetProxmoxCreds (hot-reload) can never tear this read.
+	pmURL, pmNode, pmTokenID, pmSecret := s.proxmoxCreds()
+	if pmURL == "" || pmTokenID == "" {
 		return fmt.Errorf("Proxmox Configuration Missing")
 	}
 
@@ -270,9 +349,9 @@ func (s *SSHService) DeployKeyToProxmox(vmid int, vmType string, pubKey string) 
 	}
 
 	// Auto-discover node
-	targetNode := s.proxmoxNode
-	reqNodes, _ := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes", s.proxmoxURL), nil)
-	reqNodes.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", s.proxmoxTokenID, s.proxmoxTokenSecret))
+	targetNode := pmNode
+	reqNodes, _ := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes", pmURL), nil)
+	reqNodes.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", pmTokenID, pmSecret))
 	if respNodes, err := client.Do(reqNodes); err == nil {
 		defer respNodes.Body.Close()
 		if respNodes.StatusCode == 200 {
@@ -285,7 +364,7 @@ func (s *SSHService) DeployKeyToProxmox(vmid int, vmType string, pubKey string) 
 						if firstOnline == "" {
 							firstOnline = n.Node
 						}
-						if n.Node == s.proxmoxNode {
+						if n.Node == pmNode {
 							found = true
 							break
 						}
@@ -302,7 +381,7 @@ func (s *SSHService) DeployKeyToProxmox(vmid int, vmType string, pubKey string) 
 	if vmType == "lxc" || vmType == "CT" {
 		guestType = "lxc"
 	}
-	targetURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%d/config", s.proxmoxURL, targetNode, guestType, vmid)
+	targetURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%d/config", pmURL, targetNode, guestType, vmid)
 
 	encodedKey := url.QueryEscape(pubKey)
 	encodedKey = strings.ReplaceAll(encodedKey, "+", "%20")
@@ -319,7 +398,7 @@ func (s *SSHService) DeployKeyToProxmox(vmid int, vmType string, pubKey string) 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", s.proxmoxTokenID, s.proxmoxTokenSecret))
+	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", pmTokenID, pmSecret))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := client.Do(req)

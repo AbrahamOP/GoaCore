@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"goacloud/internal/models"
+	"goacore/internal/models"
 	gossh "golang.org/x/crypto/ssh"
 )
 
@@ -38,9 +38,9 @@ func (h *Handler) HandleConsolePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := h.Config
+	pc := h.ConfigStore.ProxmoxSnapshot()
 	var vms []models.VM
-	stats, err := h.Proxmox.GetStats(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, true, false)
+	stats, err := h.Proxmox.GetStats(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, true, false)
 	if err == nil {
 		vms = stats.VMs
 	}
@@ -74,8 +74,8 @@ func (h *Handler) HandleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve VM IP
 	var ip string
-	cfg := h.Config
-	stats, err := h.Proxmox.GetStats(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, true, false)
+	pc := h.ConfigStore.ProxmoxSnapshot()
+	stats, err := h.Proxmox.GetStats(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, true, false)
 	if err == nil {
 		for _, vm := range stats.VMs {
 			if strconv.Itoa(vm.ID) == vmIDStr {

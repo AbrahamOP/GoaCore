@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+
+<head>
+    {{template "head-common"}}
+    <title>GoaCore | Connexion Proxmox</title>
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+        }
+        input::-ms-reveal,
+        input::-ms-clear,
+        input::-webkit-contacts-auto-fill-button,
+        input::-webkit-credentials-auto-fill-button,
+        input::-webkit-caps-lock-indicator,
+        input::-webkit-credit-card-auto-fill-button,
+        input::-webkit-strong-password-auto-fill-button {
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            position: absolute !important;
+            right: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+        }
+        .input-with-eye {
+            padding-right: 3rem !important;
+        }
+    </style>
+</head>
+
+<body
+    class="flex items-center justify-center min-h-screen bg-surface text-on-surface relative overflow-y-auto py-10">
+
+    <!-- Decoration Gradients (sidebar palette) — clipped to a fixed full-screen
+         layer so the absolutely-positioned bubbles never add a horizontal scrollbar
+         once the body scrolls vertically on short viewports. -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        {{template "bubbles"}}
+    </div>
+
+    <!-- Main Container -->
+    <div class="relative z-10 w-full max-w-lg px-6">
+        <div class="bg-surface-container rounded-xl p-8 shadow-lg border border-outline-variant">
+            <!-- Header -->
+            <div class="text-center mb-6">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-primary mb-4 shadow-lg">
+                    <svg class="w-8 h-8 text-on-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                    </svg>
+                </div>
+                <h1 class="text-3xl font-bold text-on-surface">Connexion Proxmox</h1>
+                <p class="text-on-surface-variant mt-2 text-sm">
+                    Reliez GoaCore à votre hyperviseur Proxmox VE pour activer les VMs, la console et les sauvegardes.
+                </p>
+            </div>
+
+            <!-- Source banner -->
+            <div class="mb-5 p-3 rounded-lg text-xs flex items-center gap-2
+                {{if eq .Source "db"}}bg-green-500/10 border border-green-500/20 text-green-300
+                {{else if eq .Source "env"}}bg-blue-500/10 border border-blue-500/20 text-blue-300
+                {{else}}bg-orange-500/10 border border-orange-500/20 text-orange-300{{end}}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>
+                    Source actuelle :
+                    {{if eq .Source "db"}}<strong>Base de données</strong> (configuré en application){{end}}
+                    {{if eq .Source "env"}}<strong>Variables d'environnement</strong>{{end}}
+                    {{if eq .Source "unconfigured"}}<strong>Non configuré</strong>{{end}}
+                </span>
+            </div>
+
+            <!-- Alerts -->
+            {{if .Error}}
+            <div class="mb-4 p-4 rounded-lg bg-error-container text-error border border-error-container text-sm flex items-center gap-2">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                {{.Error}}
+            </div>
+            {{end}}
+            {{if .Success}}
+            <div class="mb-4 p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-300 text-sm flex items-center gap-2">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {{.Success}}
+            </div>
+            {{end}}
+
+            <!-- Import env button -->
+            {{if .EnvImportable}}
+            <form action="/api/onboarding/proxmox/import-env" method="POST" class="mb-5">
+                <div class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between gap-3">
+                    <span>Une configuration Proxmox existe dans l'environnement.</span>
+                    <button type="submit"
+                        class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 transition">
+                        Importer la config env
+                    </button>
+                </div>
+            </form>
+            {{end}}
+
+            <!-- Rollback button (delete in-app DB row → revert to env / unconfigured) -->
+            {{if .CanRollback}}
+            <form action="/api/onboarding/proxmox/delete" method="POST" class="mb-5"
+                onsubmit="return confirm('Supprimer la connexion enregistrée en base et revenir à la configuration d\'environnement ?');">
+                <div class="p-3 rounded-lg bg-surface-container-high border border-outline-variant text-on-surface-variant text-xs flex items-center justify-between gap-3">
+                    <span>
+                        {{if .EnvPresent}}Revenir à la configuration d'environnement (supprime la connexion en base).
+                        {{else}}Supprimer la connexion en base (aucun fallback env — l'instance redeviendra non configurée).{{end}}
+                    </span>
+                    <button type="submit"
+                        class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-error-container text-error hover:opacity-90 transition">
+                        Supprimer / revenir à l'env
+                    </button>
+                </div>
+            </form>
+            {{end}}
+
+            <!-- Form -->
+            <form id="proxmox-form" action="/onboarding/proxmox" method="POST" class="space-y-5">
+                <input type="hidden" id="force" name="force" value="0">
+
+                <!-- URL -->
+                <div class="space-y-2">
+                    <label for="url" class="text-sm font-medium text-on-surface ml-1">URL Proxmox</label>
+                    <input id="url" name="url" type="text" required value="{{.URL}}"
+                        class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                        placeholder="https://192.168.40.20:8006">
+                </div>
+
+                <!-- Node + Token ID -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-2">
+                        <label for="node" class="text-sm font-medium text-on-surface ml-1">Node <span class="text-on-surface-variant">(auto)</span></label>
+                        <input id="node" name="node" type="text" value="{{.Node}}"
+                            class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="pve">
+                    </div>
+                    <div class="space-y-2">
+                        <label for="token_id" class="text-sm font-medium text-on-surface ml-1">Token ID</label>
+                        <input id="token_id" name="token_id" type="text" required value="{{.TokenID}}"
+                            class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="user@pam!tokenname">
+                    </div>
+                </div>
+
+                <!-- Token Secret -->
+                <div class="space-y-2">
+                    <label for="token_secret" class="text-sm font-medium text-on-surface ml-1">
+                        Secret du token
+                        {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré — laisser vide pour conserver)</span>{{end}}
+                    </label>
+                    <div class="relative">
+                        <input id="token_secret" name="token_secret" type="password" {{if not .SecretPresent}}required{{end}}
+                            class="js-field input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="{{if .SecretPresent}}••••••••••••{{else}}xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx{{end}}">
+                        <button type="button" data-toggle-password="token_secret" tabindex="-1"
+                            class="absolute inset-y-0 right-0 pr-3 flex items-center text-on-surface-variant hover:text-on-surface focus:outline-none"
+                            aria-label="Afficher le secret">
+                            <svg class="h-5 w-5 icon-eye" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            <svg class="h-5 w-5 icon-eye-off hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L14.12 14.12m0 0L21 21m-6.88-6.88a3 3 0 01-4.242-4.242" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Storage + Bridge -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-2">
+                        <label for="storage" class="text-sm font-medium text-on-surface ml-1">Storage <span class="text-on-surface-variant">(option.)</span></label>
+                        <input id="storage" name="storage" type="text" value="{{.Storage}}"
+                            class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="local-lvm">
+                    </div>
+                    <div class="space-y-2">
+                        <label for="bridge" class="text-sm font-medium text-on-surface ml-1">Bridge <span class="text-on-surface-variant">(option.)</span></label>
+                        <input id="bridge" name="bridge" type="text" value="{{.Bridge}}"
+                            class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="vmbr0">
+                    </div>
+                </div>
+
+                <!-- Réglages avancés (test de restauration) — repliés par défaut -->
+                <details class="rounded-lg border border-outline-variant bg-surface-container-high/40">
+                    <summary class="cursor-pointer select-none px-4 py-3 text-sm font-medium text-on-surface flex items-center gap-2">
+                        <svg class="w-4 h-4 text-on-surface-variant" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Réglages avancés (test de restauration)
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 space-y-4">
+                        <p class="text-xs text-on-surface-variant">
+                            Paramètres du sandbox de test de restauration. Laissez vide pour les valeurs par
+                            défaut (VLAN 99, storage et remote auto-résolus). Le VLAN d'isolation doit être
+                            <strong>routé nulle part</strong> côté firewall, et le bridge sandbox doit
+                            <strong>porter ce VLAN</strong>.
+                        </p>
+
+                        <!-- VLAN d'isolation + Bridge sandbox (couple) -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <label for="sandbox_vlan" class="text-sm font-medium text-on-surface ml-1">VLAN d'isolation</label>
+                                <input id="sandbox_vlan" name="sandbox_vlan" type="number" min="1" max="4094" value="{{.SandboxVlan}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="99">
+                            </div>
+                            <div class="space-y-2">
+                                <label for="sandbox_bridge" class="text-sm font-medium text-on-surface ml-1">Bridge sandbox <span class="text-on-surface-variant">(couplé)</span></label>
+                                <input id="sandbox_bridge" name="sandbox_bridge" type="text" value="{{.SandboxBridge}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="vmbr1">
+                            </div>
+                        </div>
+
+                        <!-- Storage de restore + Remote off-site (cryptcheck N1) -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <label for="restore_storage" class="text-sm font-medium text-on-surface ml-1">Storage de restore <span class="text-on-surface-variant">(vide=auto)</span></label>
+                                <input id="restore_storage" name="restore_storage" type="text" value="{{.RestoreStorage}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="auto-détecté">
+                            </div>
+                            <div class="space-y-2">
+                                <label for="crypt_remote" class="text-sm font-medium text-on-surface ml-1">Remote off-site (N1)</label>
+                                <input id="crypt_remote" name="crypt_remote" type="text" value="{{.CryptRemote}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="gcrypt">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Test result panel -->
+                <div id="test-result" class="hidden p-3 rounded-lg text-sm"></div>
+
+                <!-- ACL note -->
+                <p class="text-xs text-on-surface-variant ml-1">
+                    Un test réussi confirme l'authentification et la joignabilité, pas les droits d'écriture
+                    (création/extinction de VM, snapshots). Vérifiez les privilèges PVE du token.
+                </p>
+
+                <!-- Actions -->
+                <div class="flex gap-3 pt-1">
+                    <button type="button" id="test-btn"
+                        class="flex-1 flex justify-center items-center gap-2 py-3 px-4 rounded-full text-sm font-bold bg-surface-container-high border border-outline text-on-surface hover:shadow-md focus:outline-none transition">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Tester la connexion
+                    </button>
+                    <button type="submit" id="save-btn" disabled
+                        class="flex-1 flex justify-center py-3 px-4 rounded-full text-sm font-bold bg-primary text-on-primary opacity-50 cursor-not-allowed hover:shadow-md focus:outline-none transition">
+                        Enregistrer
+                    </button>
+                </div>
+                <p id="save-anyway-hint" class="hidden text-xs text-orange-300 ml-1"></p>
+            </form>
+        </div>
+
+        <p class="mt-6 text-center text-xs text-on-surface-variant">
+            GoaCore — onboarding infrastructure. Vous pourrez modifier cette connexion plus tard.
+        </p>
+    </div>
+
+    <script src="/static/theme.js"></script>
+    <script src="/static/csrf.js"></script>
+    <script>
+        // Toggle password visibility
+        document.querySelectorAll('[data-toggle-password]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var target = document.getElementById(btn.getAttribute('data-toggle-password'));
+                if (!target) return;
+                var eye = btn.querySelector('.icon-eye');
+                var eyeOff = btn.querySelector('.icon-eye-off');
+                if (target.type === 'password') {
+                    target.type = 'text';
+                    eye.classList.add('hidden');
+                    eyeOff.classList.remove('hidden');
+                } else {
+                    target.type = 'password';
+                    eyeOff.classList.add('hidden');
+                    eye.classList.remove('hidden');
+                }
+            });
+        });
+
+        var secretPresent = {{if .SecretPresent}}true{{else}}false{{end}};
+        var saveBtn = document.getElementById('save-btn');
+        var testBtn = document.getElementById('test-btn');
+        var forceField = document.getElementById('force');
+        var resultPanel = document.getElementById('test-result');
+        var saveHint = document.getElementById('save-anyway-hint');
+
+        function enableSave(enable) {
+            saveBtn.disabled = !enable;
+            if (enable) {
+                saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        // Any field edit invalidates a previous test result (force back to disabled).
+        document.querySelectorAll('.js-field').forEach(function (input) {
+            input.addEventListener('input', function () {
+                enableSave(false);
+                forceField.value = '0';
+                saveHint.classList.add('hidden');
+                resultPanel.classList.add('hidden');
+            });
+        });
+
+        function showResult(cls, html) {
+            resultPanel.className = 'p-3 rounded-lg text-sm ' + cls;
+            resultPanel.innerHTML = html;
+            resultPanel.classList.remove('hidden');
+        }
+
+        testBtn.addEventListener('click', function () {
+            var url = document.getElementById('url').value.trim();
+            var node = document.getElementById('node').value.trim();
+            var tokenId = document.getElementById('token_id').value.trim();
+            var secret = document.getElementById('token_secret').value;
+
+            if (!url || !tokenId || (!secret && !secretPresent)) {
+                showResult('bg-error-container text-error border border-error-container',
+                    'URL, Token ID et secret sont requis pour tester.');
+                return;
+            }
+
+            testBtn.disabled = true;
+            testBtn.textContent = 'Test en cours…';
+            forceField.value = '0';
+            saveHint.classList.add('hidden');
+
+            // csrf.js patches fetch to inject the X-CSRF-Token header from the _csrf cookie.
+            fetch('/api/onboarding/proxmox/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url, node: node, token_id: tokenId, token_secret: secret })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.ok) {
+                        showResult('bg-green-500/10 border border-green-500/20 text-green-300',
+                            '✓ Connexion établie. Vous pouvez enregistrer.');
+                        enableSave(true);
+                    } else if (data.kind === 'network') {
+                        showResult('bg-orange-500/10 border border-orange-500/20 text-orange-300',
+                            '⚠ ' + (data.error || 'Erreur réseau transitoire.'));
+                        // Transient: allow "save anyway" (server re-tests at Save).
+                        enableSave(true);
+                        forceField.value = '1';
+                        saveHint.textContent = 'Erreur réseau transitoire — « Enregistrer » forcera la sauvegarde (re-test côté serveur).';
+                        saveHint.classList.remove('hidden');
+                    } else {
+                        showResult('bg-error-container text-error border border-error-container',
+                            '✕ ' + (data.error || 'Test échoué.'));
+                        enableSave(false);
+                    }
+                })
+                .catch(function () {
+                    showResult('bg-error-container text-error border border-error-container',
+                        '✕ Impossible de contacter le serveur.');
+                    enableSave(false);
+                })
+                .finally(function () {
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> Tester la connexion';
+                });
+        });
+    </script>
+</body>
+
+</html>

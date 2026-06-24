@@ -7,16 +7,21 @@ import (
 	"strings"
 	"time"
 
-	"goacloud/internal/config"
-	"goacloud/internal/services"
+	"goacore/internal/config"
+	"goacore/internal/services"
 )
 
-// StartProxmoxAuthMonitor starts the background worker that monitors Proxmox authentication events.
-func StartProxmoxAuthMonitor(ctx context.Context, cfg *config.Config, proxmox *services.ProxmoxService, discord *services.DiscordBot) {
-	if cfg.ProxmoxURL == "" {
-		return
-	}
-
+// StartProxmoxAuthMonitor starts the background worker that monitors Proxmox
+// authentication events.
+//
+// The "is Proxmox configured?" check lives INSIDE the ticker loop (not at entry):
+// on a fresh instance with no Proxmox yet, the worker must NOT exit permanently —
+// it idles tick after tick and self-activates the moment an admin onboards Proxmox
+// in-app (hot-reload), exactly like the cache worker. Credentials are read live via
+// store.ProxmoxSnapshot() on every tick (lock-free, always coherent).
+// discord is a DiscordProvider (the registry) read LIVE at each tick — never a frozen
+// bot — so an in-app Discord hot-reload reaches the auth alerts on the next event.
+func StartProxmoxAuthMonitor(ctx context.Context, store *config.ConfigStore, proxmox *services.ProxmoxService, discord services.DiscordProvider) {
 	select {
 	case <-ctx.Done():
 		return
@@ -24,7 +29,9 @@ func StartProxmoxAuthMonitor(ctx context.Context, cfg *config.Config, proxmox *s
 	}
 	slog.Info("Starting Proxmox Auth Monitor...")
 
-	lastN := proxmoxSyslogGetLastN(cfg, proxmox)
+	// lastN < 0 means "not yet primed": the first tick that finds Proxmox configured
+	// seeds it from the current syslog tail so we don't replay history as alerts.
+	lastN := -1
 
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -34,13 +41,55 @@ func StartProxmoxAuthMonitor(ctx context.Context, cfg *config.Config, proxmox *s
 			slog.Info("Proxmox Auth Monitor stopped")
 			return
 		case <-ticker.C:
-			lastN = checkProxmoxAuthEvents(cfg, proxmox, discord, lastN)
+			pm := store.ProxmoxSnapshot()
+			switch proxmoxTickAction(pm, lastN) {
+			case tickIdle:
+				// Not configured yet — idle and re-check next tick (survives a
+				// from-scratch boot and reactivates automatically on hot-reload).
+				continue
+			case tickPrime:
+				// First time we see a configured Proxmox: prime the cursor without
+				// emitting alerts for pre-existing log lines.
+				lastN = proxmoxSyslogGetLastN(pm, proxmox)
+			case tickCheck:
+				// Snapshot the live Discord bot for this tick (hot-reloadable).
+				lastN = checkProxmoxAuthEvents(pm, proxmox, discord.Discord(), lastN)
+			}
 		}
 	}
 }
 
-func proxmoxSyslogGetLastN(cfg *config.Config, proxmox *services.ProxmoxService) int {
-	entries := proxmox.FetchSyslog(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, 0, 500)
+// proxmoxTickAction is the pure decision the auth-monitor ticker makes each tick,
+// extracted so it can be unit-tested without a live Proxmox. It encodes the
+// self-activation contract (BLOQUANT #3): an unconfigured snapshot ALWAYS idles
+// (never a permanent exit), the first configured tick primes, and every tick
+// after that checks. lastN < 0 means "not yet primed".
+//
+// "Configured" uses the SAME criterion as the onboarding gate (URL + token id +
+// token secret, via ProxmoxConn.Configured()) so the worker never wakes up on a
+// half-filled connection the gate considers unconfigured (a URL+TokenID without the
+// secret would otherwise leak past here and hammer the API with a guaranteed 401).
+func proxmoxTickAction(pm config.ProxmoxConn, lastN int) tickAction {
+	if !pm.Configured() {
+		return tickIdle
+	}
+	if lastN < 0 {
+		return tickPrime
+	}
+	return tickCheck
+}
+
+// tickAction is the outcome of proxmoxTickAction.
+type tickAction int
+
+const (
+	tickIdle  tickAction = iota // Proxmox not configured: idle, re-check next tick
+	tickPrime                   // configured for the first time: seed the cursor
+	tickCheck                   // configured and primed: scan for new auth events
+)
+
+func proxmoxSyslogGetLastN(pm config.ProxmoxConn, proxmox *services.ProxmoxService) int {
+	entries := proxmox.FetchSyslog(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret, 0, 500)
 	maxN := 0
 	for _, e := range entries {
 		if e.N > maxN {
@@ -50,8 +99,8 @@ func proxmoxSyslogGetLastN(cfg *config.Config, proxmox *services.ProxmoxService)
 	return maxN
 }
 
-func checkProxmoxAuthEvents(cfg *config.Config, proxmox *services.ProxmoxService, discord *services.DiscordBot, lastN int) int {
-	entries := proxmox.FetchSyslog(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, lastN, 200)
+func checkProxmoxAuthEvents(pm config.ProxmoxConn, proxmox *services.ProxmoxService, discord *services.DiscordBot, lastN int) int {
+	entries := proxmox.FetchSyslog(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret, lastN, 200)
 
 	for _, entry := range entries {
 		if entry.N <= lastN {
@@ -72,14 +121,14 @@ func checkProxmoxAuthEvents(cfg *config.Config, proxmox *services.ProxmoxService
 			user := proxmoxExtractUser(line)
 			go discord.SendAuthAlert(
 				"✅ Connexion Proxmox réussie",
-				fmt.Sprintf("**Utilisateur :** %s\n**Serveur :** %s\n**Log :** `%s`", user, cfg.ProxmoxURL, line),
+				fmt.Sprintf("**Utilisateur :** %s\n**Serveur :** %s\n**Log :** `%s`", user, pm.URL, line),
 				false,
 			)
 		} else if strings.Contains(line, "authentication failure") || strings.Contains(line, "failed auth") {
 			user := proxmoxExtractUser(line)
 			go discord.SendAuthAlert(
 				"❌ Échec de connexion Proxmox",
-				fmt.Sprintf("**Utilisateur :** %s\n**Serveur :** %s\n**Log :** `%s`", user, cfg.ProxmoxURL, line),
+				fmt.Sprintf("**Utilisateur :** %s\n**Serveur :** %s\n**Log :** `%s`", user, pm.URL, line),
 				false,
 			)
 		}

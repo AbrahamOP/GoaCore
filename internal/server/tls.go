@@ -25,7 +25,7 @@ func GenerateSelfSignedCert() error {
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			Organization: []string{"GoaCloud Self-Signed"},
+			Organization: []string{"GoaCore Self-Signed"},
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),

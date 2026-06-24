@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"goacloud/internal/models"
+	"goacore/internal/models"
 )
 
 // WazuhAuthResponse is the authentication response from the Wazuh API.

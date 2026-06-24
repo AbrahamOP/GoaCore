@@ -6,20 +6,24 @@ import (
 	"sync"
 	"time"
 
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // StartWazuhWorker starts the background worker that refreshes the Wazuh agent cache.
+//
+// It reads the Wazuh API + Indexer clients LIVE from the registry at the top of each
+// tick (registry.Wazuh()/Indexer()) rather than capturing them once, so an in-app
+// onboarding hot-reload takes effect on the next tick. UpdateWazuhCache keeps its
+// client-param signature (minimal diff); the per-tick read happens here.
 func StartWazuhWorker(
 	ctx context.Context,
-	wazuhClient *services.WazuhClient,
-	wazuhIndexer *services.WazuhIndexerClient,
+	registry *services.ServiceRegistry,
 	wazuhCache *models.WazuhCache,
 	vulnCache *sync.Map,
 ) {
 	slog.Info("Starting Wazuh Cache Worker...")
-	UpdateWazuhCache(wazuhClient, wazuhIndexer, wazuhCache, vulnCache)
+	UpdateWazuhCache(registry.Wazuh(), registry.Indexer(), wazuhCache, vulnCache)
 
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -30,7 +34,7 @@ func StartWazuhWorker(
 			slog.Info("Wazuh Worker stopped")
 			return
 		case <-ticker.C:
-			UpdateWazuhCache(wazuhClient, wazuhIndexer, wazuhCache, vulnCache)
+			UpdateWazuhCache(registry.Wazuh(), registry.Indexer(), wazuhCache, vulnCache)
 		}
 	}
 }

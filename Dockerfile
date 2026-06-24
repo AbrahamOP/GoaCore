@@ -16,6 +16,11 @@ COPY assets/ ./assets/
 # Cache busting
 ARG CACHEBUST=1
 COPY playbooks/ ./playbooks/
+# deploy/ contient le helper goabackup-runner.sh embarqué par //go:embed dans
+# goacore/deploy/goabackup, importé transitivement par cmd/server. Sans cette copie,
+# `go build ./cmd/server` échoue ("package goacore/deploy/goabackup is not in std").
+# Le stage final n'en a pas besoin : l'embed est compilé dans le binaire.
+COPY deploy/ ./deploy/
 
 # Téléchargement des dépendances
 RUN go mod download

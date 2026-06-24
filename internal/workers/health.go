@@ -36,7 +36,10 @@ func runHealthChecks(db *sql.DB) {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			// Health-checks probe user-supplied app URLs, which are frequently
+			// self-signed in a homelab/PME setup; skipping verification here only
+			// affects up/down probing, not data exchange.
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse // don't follow redirects

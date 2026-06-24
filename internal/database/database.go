@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"goacloud/internal/config"
+	"goacore/internal/config"
 )
 
 // Connect opens the database connection with retry logic.
@@ -126,6 +126,7 @@ func Migrate(db *sql.DB) {
 			vmid INT NOT NULL,
 			key_id INT NOT NULL,
 			interval_minutes INT NOT NULL,
+			remote_user VARCHAR(50) NOT NULL DEFAULT 'root',
 			enabled BOOLEAN NOT NULL DEFAULT TRUE,
 			next_run DATETIME NOT NULL,
 			last_run DATETIME NULL,
@@ -134,6 +135,88 @@ func Migrate(db *sql.DB) {
 			created_by VARCHAR(50),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS backup_targets (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			target_type VARCHAR(10) NOT NULL DEFAULT 'qemu',
+			source_ref VARCHAR(50) NOT NULL,
+			storage VARCHAR(100) NOT NULL DEFAULT 'local',
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			rpo_hours INT NOT NULL DEFAULT 24,
+			schedule_cron VARCHAR(100) NOT NULL DEFAULT '',
+			retention_count INT NOT NULL DEFAULT 3,
+			healthcheck_type VARCHAR(20) NOT NULL DEFAULT 'none',
+			healthcheck_target VARCHAR(255) NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE KEY uk_target (target_type, source_ref)
+		)`,
+		`CREATE TABLE IF NOT EXISTS backup_runs (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			target_id INT NOT NULL,
+			backup_type VARCHAR(20) NOT NULL DEFAULT 'vzdump',
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			started_at DATETIME NULL,
+			completed_at DATETIME NULL,
+			size_bytes BIGINT NOT NULL DEFAULT 0,
+			archive_path VARCHAR(512) NOT NULL DEFAULT '',
+			checksum VARCHAR(128) NOT NULL DEFAULT '',
+			source VARCHAR(20) NOT NULL DEFAULT 'manual',
+			message TEXT,
+			created_by VARCHAR(50),
+			upid VARCHAR(255) NOT NULL DEFAULT '',
+			destination VARCHAR(20) NOT NULL DEFAULT 'local',
+			remote VARCHAR(64) NOT NULL DEFAULT '',
+			push_status VARCHAR(20) NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_bruns_target (target_id),
+			INDEX idx_bruns_status (status),
+			INDEX idx_bruns_created (created_at)
+		)`,
+		`CREATE TABLE IF NOT EXISTS backup_settings (
+			id INT PRIMARY KEY DEFAULT 1,
+			rotation_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+			rotation_hour INT NOT NULL DEFAULT 4
+		)`,
+		`CREATE TABLE IF NOT EXISTS restore_tests (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			target_id INT NOT NULL,
+			run_id INT NULL,
+			level VARCHAR(4) NOT NULL DEFAULT 'N1',
+			verdict VARCHAR(20) NOT NULL DEFAULT 'pending',
+			sandbox_vmid INT NOT NULL DEFAULT 0,
+			rto_seconds INT NOT NULL DEFAULT 0,
+			started_at DATETIME NULL,
+			completed_at DATETIME NULL,
+			logs TEXT,
+			triggered_by VARCHAR(20) NOT NULL DEFAULT 'manual',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_rtests_target (target_id),
+			INDEX idx_rtests_verdict (verdict),
+			INDEX idx_rtests_created (created_at)
+		)`,
+		// connections holds per-service infrastructure credentials, configured
+		// in-app (onboarding) instead of (or on top of) environment variables.
+		// One row per service ('proxmox' at Jalon 1; 'wazuh'/'ai'/'discord' later
+		// are simply more rows — no schema change). Only the secret column is
+		// encrypted (AES-256-GCM, same key as SSH keys); url/node/token_id and the
+		// non-sensitive extra_json fields stay in clear. The ABSENCE of a row is the
+		// "not configured" signal — there is deliberately NO INSERT IGNORE here.
+		`CREATE TABLE IF NOT EXISTS connections (
+			service        VARCHAR(32)  NOT NULL PRIMARY KEY,
+			enabled        TINYINT(1)   NOT NULL DEFAULT 1,
+			url            VARCHAR(512) NOT NULL DEFAULT '',
+			node           VARCHAR(128) NOT NULL DEFAULT '',
+			token_id       VARCHAR(256) NOT NULL DEFAULT '',
+			secret_enc     TEXT         NOT NULL,
+			extra_json     JSON         NULL,
+			configured     TINYINT(1)   NOT NULL DEFAULT 0,
+			status         VARCHAR(16)  NOT NULL DEFAULT 'unknown',
+			last_tested_at DATETIME     NULL,
+			last_error     VARCHAR(512) NOT NULL DEFAULT '',
+			source         VARCHAR(8)   NOT NULL DEFAULT 'db',
+			updated_by     VARCHAR(128) NOT NULL DEFAULT '',
+			updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	}
 
 	for _, stmt := range coreTables {
@@ -144,6 +227,10 @@ func Migrate(db *sql.DB) {
 
 	// Ensure soar_config default row
 	db.Exec(`INSERT IGNORE INTO soar_config (id, alert_status, alert_ssh, alert_sudo, alert_fim, alert_packages) VALUES (1, TRUE, TRUE, TRUE, TRUE, TRUE)`)
+
+	// Ensure the single backup_settings row (id=1) always exists so the worker can
+	// read rotation config at runtime without a NULL-row special case.
+	db.Exec(`INSERT IGNORE INTO backup_settings (id) VALUES (1)`)
 
 	// Column migrations (idempotent — errors from "already exists" are ignored)
 	migrations := []string{
@@ -159,6 +246,10 @@ func Migrate(db *sql.DB) {
 		"ALTER TABLE apps ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE apps ADD COLUMN position INT NOT NULL DEFAULT 0",
 		"ALTER TABLE apps MODIFY COLUMN icon_url MEDIUMTEXT",
+		"ALTER TABLE backup_runs ADD COLUMN upid VARCHAR(255) NOT NULL DEFAULT ''",
+		"ALTER TABLE backup_runs ADD COLUMN destination VARCHAR(20) NOT NULL DEFAULT 'local'",
+		"ALTER TABLE backup_runs ADD COLUMN remote VARCHAR(64) NOT NULL DEFAULT ''",
+		"ALTER TABLE backup_runs ADD COLUMN push_status VARCHAR(20) NOT NULL DEFAULT ''",
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {

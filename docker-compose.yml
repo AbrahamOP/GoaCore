@@ -1,43 +1,69 @@
+# GoaCore — stack de production clé en main (application + MySQL).
+#
+# Démarrage :
+#   1. cp .env.example .env
+#   2. Éditer .env : générer SESSION_SECRET (openssl rand -hex 32) et définir des
+#      mots de passe MySQL forts (DB_PASSWORD, DB_ROOT_PASSWORD). Le reste est
+#      optionnel et configurable plus tard depuis l'interface web.
+#   3. docker compose up -d --build
+#
+# L'application est servie en HTTPS sur le port 8443 (certificat auto-signé généré
+# automatiquement — à placer derrière un reverse proxy ou à remplacer en prod).
+# Au premier lancement, ouvrez https://<hôte>:8443/setup pour créer l'admin.
+#
+# Toutes les variables d'environnement sont lues depuis le fichier .env voisin.
 services:
   app:
     build: .
+    image: goacloud:latest
     container_name: goacloud_app
     ports:
-      - "8082:8080"
+      # HTTPS de l'interface (point d'entrée principal). HTTP interne sur 8080.
       - "8443:8443"
+      - "8080:8080"
     environment:
+      # --- Base de données (le réseau interne de compose résout "db") ---
       - DB_HOST=db:3306
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
       - PORT=8080
+      - HTTPS_PORT=8443
+      # --- Sécurité ---
       - SESSION_SECRET=${SESSION_SECRET}
-      # Proxmox API Config
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - SKIP_TLS_VERIFY=${SKIP_TLS_VERIFY:-false}
+      # --- Proxmox (optionnel — configurable depuis l'UI) ---
       - PROXMOX_URL=${PROXMOX_URL}
       - PROXMOX_NODE=${PROXMOX_NODE:-pve}
       - PROXMOX_TOKEN_ID=${PROXMOX_TOKEN_ID}
       - PROXMOX_TOKEN_SECRET=${PROXMOX_TOKEN_SECRET}
-      - SKIP_TLS_VERIFY=${SKIP_TLS_VERIFY:-false}
-      # Wazuh API Config
+      - PROXMOX_STORAGE=${PROXMOX_STORAGE}
+      - PROXMOX_BRIDGE=${PROXMOX_BRIDGE}
+      # --- Wazuh (optionnel — configurable depuis l'UI) ---
       - WAZUH_API_URL=${WAZUH_API_URL}
       - WAZUH_USER=${WAZUH_USER}
       - WAZUH_PASSWORD=${WAZUH_PASSWORD}
       - WAZUH_INDEXER_URL=${WAZUH_INDEXER_URL}
       - WAZUH_INDEXER_USER=${WAZUH_INDEXER_USER}
       - WAZUH_INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD}
-      # Discord Config
-      - DISCORD_BOT_TOKEN=${DISCORD_BOTTOKEN}
+      # --- Discord (optionnel — configurable depuis l'UI) ---
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
       - DISCORD_AUTH_CHANNEL_ID=${DISCORD_AUTH_CHANNEL_ID}
       - DISCORD_ANSIBLE_CHANNEL_ID=${DISCORD_ANSIBLE_CHANNEL_ID}
-      # AI Config
+      # --- IA / enrichissement SOAR (optionnel — configurable depuis l'UI) ---
       - AI_PROVIDER=${AI_PROVIDER:-ollama}
-      - AI_URL=${AI_URL:-http://host.docker.internal:11434}
-      - AI_MODEL=${AI_MODEL:-phi3:medium}
+      - AI_URL=${AI_URL}
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_MODEL=${AI_MODEL}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
-      - ./soar_config.json:/app/soar_config.json
+      # Playbooks Ansible générés/uploadés depuis l'app (persistés).
       - ansible_playbooks:/app/playbooks
 
   db:
@@ -50,9 +76,17 @@ services:
       - MYSQL_PASSWORD=${DB_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
-      # Initialisation de la BDD au premier démarrage
-      - ./schema.sql:/docker-entrypoint-initdb.d/init.sql
+      # Initialisation du schéma au tout premier démarrage (base vide uniquement).
+      - ./schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
+    healthcheck:
+      # L'app attend que MySQL réponde réellement (et pas seulement que le conteneur
+      # démarre) grâce à depends_on: condition: service_healthy ci-dessus.
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 volumes:
   mysql_data:

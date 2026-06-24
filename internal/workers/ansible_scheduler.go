@@ -11,11 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"goacloud/internal/services"
+	"goacore/internal/services"
 )
 
 // StartAnsibleScheduler checks for due ansible schedules every 60 seconds and executes them.
-func StartAnsibleScheduler(ctx context.Context, db *sql.DB, sshService *services.SSHService, discord *services.DiscordBot) {
+//
+// discord is a DiscordProvider (the registry): the live bot is re-resolved at the head
+// of each tick (in runDueSchedules) and the resulting snapshot is handed to the async
+// per-job goroutines. Because the executions run async, the bot MUST be re-read per
+// tick — never captured at start — so an in-app Discord hot-reload reaches them.
+func StartAnsibleScheduler(ctx context.Context, db *sql.DB, sshService *services.SSHService, discord services.DiscordProvider) {
 	slog.Info("Starting Ansible Scheduler Worker...")
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
@@ -30,8 +35,13 @@ func StartAnsibleScheduler(ctx context.Context, db *sql.DB, sshService *services
 	}
 }
 
-func runDueSchedules(db *sql.DB, sshService *services.SSHService, discord *services.DiscordBot) {
-	rows, err := db.Query(`SELECT id, playbook, vmid, key_id, interval_minutes
+func runDueSchedules(db *sql.DB, sshService *services.SSHService, provider services.DiscordProvider) {
+	// Snapshot the live bot once per tick; the async jobs below use this snapshot.
+	var discord *services.DiscordBot
+	if provider != nil {
+		discord = provider.Discord()
+	}
+	rows, err := db.Query(`SELECT id, playbook, vmid, key_id, interval_minutes, remote_user
 		FROM ansible_schedules WHERE enabled = TRUE AND next_run <= NOW()`)
 	if err != nil {
 		slog.Error("Ansible scheduler: DB error", "error", err)
@@ -45,12 +55,13 @@ func runDueSchedules(db *sql.DB, sshService *services.SSHService, discord *servi
 		VMID            int
 		KeyID           int
 		IntervalMinutes int
+		RemoteUser      string
 	}
 
 	var jobs []job
 	for rows.Next() {
 		var j job
-		if err := rows.Scan(&j.ID, &j.Playbook, &j.VMID, &j.KeyID, &j.IntervalMinutes); err != nil {
+		if err := rows.Scan(&j.ID, &j.Playbook, &j.VMID, &j.KeyID, &j.IntervalMinutes, &j.RemoteUser); err != nil {
 			continue
 		}
 		jobs = append(jobs, j)
@@ -60,11 +71,11 @@ func runDueSchedules(db *sql.DB, sshService *services.SSHService, discord *servi
 	}
 
 	for _, j := range jobs {
-		go executeScheduledPlaybook(db, sshService, discord, j.ID, j.Playbook, j.VMID, j.KeyID, j.IntervalMinutes)
+		go executeScheduledPlaybook(db, sshService, discord, j.ID, j.Playbook, j.VMID, j.KeyID, j.IntervalMinutes, j.RemoteUser)
 	}
 }
 
-func executeScheduledPlaybook(db *sql.DB, sshService *services.SSHService, discord *services.DiscordBot, scheduleID int, playbook string, vmid int, keyID int, intervalMinutes int) {
+func executeScheduledPlaybook(db *sql.DB, sshService *services.SSHService, discord *services.DiscordBot, scheduleID int, playbook string, vmid int, keyID int, intervalMinutes int, remoteUser string) {
 	slog.Info("Ansible scheduler: executing", "schedule_id", scheduleID, "playbook", playbook, "vmid", vmid)
 
 	// Get VM name for notifications
@@ -96,7 +107,7 @@ func executeScheduledPlaybook(db *sql.DB, sshService *services.SSHService, disco
 	}
 
 	// Run playbook
-	cmdOut, cleanup, err := services.RunPlaybook(playbookPath, targetIP, sshKey.PrivateKey)
+	cmdOut, cleanup, err := services.RunPlaybook(playbookPath, targetIP, sshKey.PrivateKey, remoteUser)
 	if err != nil {
 		msg := fmt.Sprintf("Execution error: %v", err)
 		updateScheduleResult(db, scheduleID, intervalMinutes, "error", msg)

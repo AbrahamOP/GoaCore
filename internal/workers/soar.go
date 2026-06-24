@@ -8,18 +8,22 @@ import (
 	"sync"
 	"time"
 
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/models"
+	"goacore/internal/services"
 )
 
 // StartSoarWorker starts the background worker that checks SOAR events and sends alerts.
+//
+// The Wazuh API, Wazuh Indexer, AI AND Discord clients are all read LIVE from the
+// registry at the top of each tick (registry.Wazuh()/Indexer()/AI()/Discord()) rather
+// than captured once, so an in-app onboarding hot-reload takes effect on the next tick.
+// Each tick's Discord snapshot is handed to checkSoarEvents / sendEnrichedAlert as a
+// plain *DiscordBot param (their internal signatures are unchanged): the async
+// go sendEnrichedAlert(...) therefore uses the tick's bot, not a later concurrent swap.
 func StartSoarWorker(
 	ctx context.Context,
 	db *sql.DB,
-	wazuhClient *services.WazuhClient,
-	wazuhIndexer *services.WazuhIndexerClient,
-	aiClient services.AIClient,
-	discord *services.DiscordBot,
+	registry *services.ServiceRegistry,
 	soarConfig *models.SoarConfigState,
 ) {
 	slog.Info("Starting SOAR Worker...")
@@ -29,8 +33,8 @@ func StartSoarWorker(
 	agentStatus := &sync.Map{}
 	alertDedup := &sync.Map{}
 
-	// Populate initial state without alerting
-	if wazuhClient != nil {
+	// Populate initial state without alerting (read the Wazuh client live).
+	if wazuhClient := registry.Wazuh(); wazuhClient != nil {
 		agents, err := wazuhClient.GetAgents()
 		if err == nil {
 			for _, agent := range agents {
@@ -57,7 +61,8 @@ func StartSoarWorker(
 			return
 		case <-ticker.C:
 			loadSoarConfig(db, soarConfig)
-			checkSoarEvents(wazuhClient, wazuhIndexer, aiClient, discord, soarConfig, agentStatus, alertDedup, &lastAlertPoll)
+			// Snapshot ALL hot-reloadable clients (incl. Discord) for this tick.
+			checkSoarEvents(registry.Wazuh(), registry.Indexer(), registry.AI(), registry.Discord(), soarConfig, agentStatus, alertDedup, &lastAlertPoll)
 		}
 	}
 }

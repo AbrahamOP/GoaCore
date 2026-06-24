@@ -9,9 +9,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/sessions"
-	"goacloud/assets"
-	"goacloud/internal/handlers"
-	appMiddleware "goacloud/internal/middleware"
+	"goacore/assets"
+	"goacore/internal/handlers"
+	appMiddleware "goacore/internal/middleware"
 )
 
 // New creates and returns the application router with all routes registered.
@@ -45,6 +45,12 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 	r.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
 			return appMiddleware.AuthMiddleware(store, db, next)
+		})
+		// Onboarding gate: while Proxmox is unconfigured, steer the Proxmox-dependent
+		// pages to /onboarding/proxmox (409 on their /api/* routes). Non-blocking
+		// everywhere else (dashboard, profile, wazuh, onboarding itself).
+		r.Use(func(next http.Handler) http.Handler {
+			return appMiddleware.OnboardingGate(h.ConfigStore.ProxmoxConfigured, next)
 		})
 
 		r.Get("/", h.HandleDashboard)
@@ -101,6 +107,60 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Use(func(next http.Handler) http.Handler {
 			return appMiddleware.AdminOnly(store, db, next)
 		})
+		// Same onboarding gate as the authenticated group: the Proxmox-dependent
+		// admin pages (/backups, /console, /ansible, /ssh) and their /api/* routes
+		// are gated until Proxmox is configured; /onboarding/* is exempt by allowlist.
+		r.Use(func(next http.Handler) http.Handler {
+			return appMiddleware.OnboardingGate(h.ConfigStore.ProxmoxConfigured, next)
+		})
+
+		// Onboarding — in-app Proxmox connection (page + live test + save + env import).
+		// Admin-only by group; the gate exempts these paths so they stay reachable on
+		// a fresh, unconfigured instance.
+		r.Get("/onboarding/proxmox", h.HandleOnboardingProxmox)
+		r.Post("/onboarding/proxmox", h.HandleOnboardingProxmox)
+		r.Post("/api/onboarding/proxmox/test", h.HandleOnboardingProxmoxTest)
+		r.Post("/api/onboarding/proxmox/import-env", h.HandleOnboardingImportEnv)
+		// Rollback: delete the in-app DB row, revert to the env fallback live.
+		r.Post("/api/onboarding/proxmox/delete", h.HandleOnboardingDeleteProxmox)
+
+		// Onboarding — unified Connexions page for the registry-held services
+		// (Wazuh API, Wazuh Indexer, AI, Discord). Proxmox keeps its dedicated page
+		// (linked from here). Not in the OnboardingGate allowlist ⇒ reachable on a
+		// fresh instance. All four service quartets are wired.
+		r.Get("/onboarding/connexions", h.HandleOnboardingConnexions)
+		r.Post("/onboarding/wazuh-indexer", h.HandleOnboardingWazuhIndexer)
+		r.Post("/api/onboarding/wazuh-indexer/test", h.HandleOnboardingWazuhIndexerTest)
+		r.Post("/api/onboarding/wazuh-indexer/import-env", h.HandleOnboardingWazuhIndexerImportEnv)
+		r.Post("/api/onboarding/wazuh-indexer/delete", h.HandleOnboardingWazuhIndexerDelete)
+		r.Post("/onboarding/wazuh", h.HandleOnboardingWazuh)
+		r.Post("/api/onboarding/wazuh/test", h.HandleOnboardingWazuhTest)
+		r.Post("/api/onboarding/wazuh/import-env", h.HandleOnboardingWazuhImportEnv)
+		r.Post("/api/onboarding/wazuh/delete", h.HandleOnboardingWazuhDelete)
+		r.Post("/onboarding/ai", h.HandleOnboardingAI)
+		r.Post("/api/onboarding/ai/test", h.HandleOnboardingAITest)
+		r.Post("/api/onboarding/ai/import-env", h.HandleOnboardingAIImportEnv)
+		r.Post("/api/onboarding/ai/delete", h.HandleOnboardingAIDelete)
+		r.Post("/onboarding/discord", h.HandleOnboardingDiscord)
+		r.Post("/api/onboarding/discord/test", h.HandleOnboardingDiscordTest)
+		r.Post("/api/onboarding/discord/import-env", h.HandleOnboardingDiscordImportEnv)
+		r.Post("/api/onboarding/discord/delete", h.HandleOnboardingDiscordDelete)
+
+		// Onboarding — read-only Proxmox helper CHANNEL (goabackup) + cloud self-service.
+		// GoaCore GENERATES the ed25519 key and SERVES an auditable install script the
+		// admin runs in root on THEIR Proxmox; it never opens an SSH session to install.
+		// Provision (POST CSRF) generates+persists+hot-reloads the key; installer.sh/
+		// helper.sh are Admin-only GETs serving the script/helper (pubkey is public, the
+		// private key never leaves the DB); test runs a live disk-free proof; delete rolls
+		// back and shows the host-side revocation command. Exempt from the OnboardingGate
+		// by the /onboarding prefix ⇒ reachable on a fresh instance.
+		r.Get("/onboarding/canal", h.HandleOnboardingChannel)
+		r.Post("/api/onboarding/canal/provision", h.HandleOnboardingChannelProvision)
+		r.Get("/api/onboarding/canal/installer.sh", h.HandleOnboardingChannelInstaller)
+		r.Get("/api/onboarding/canal/helper.sh", h.HandleOnboardingChannelHelper)
+		r.Post("/api/onboarding/canal/test", h.HandleOnboardingChannelTest)
+		r.Post("/api/onboarding/canal/import-env", h.HandleOnboardingChannelImportEnv)
+		r.Post("/api/onboarding/canal/delete", h.HandleOnboardingChannelDelete)
 
 		// Proxmox — state-changing / sensitive
 		r.Post("/api/proxmox/guest/power", h.HandleProxmoxPowerAction)
@@ -137,6 +197,16 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Post("/api/ansible/schedules", h.HandleAnsibleSchedules)
 		r.Delete("/api/ansible/schedules", h.HandleAnsibleScheduleDelete)
 		r.Post("/api/ansible/schedules/toggle", h.HandleAnsibleScheduleToggle)
+
+		// Backups — management & restore testing (triggers restore/destroy)
+		r.Get("/backups", h.HandleBackupPage)
+		r.Post("/api/backups/create", h.HandleBackupCreate)
+		r.Get("/api/backups/remotes", h.HandleBackupRemotes)
+		r.Get("/api/backups/runs", h.HandleBackupRunsList)
+		r.Post("/api/backups/test", h.HandleBackupTest)
+		r.Get("/api/backups/tests", h.HandleBackupTestsList)
+		r.Post("/api/backups/settings", h.HandleBackupSettings)
+		r.Post("/api/backups/target-settings", h.HandleBackupTargetSettings)
 
 		// User management & audit trail
 		r.Get("/users", h.HandleUsers)

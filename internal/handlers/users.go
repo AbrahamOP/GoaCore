@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"goacloud/internal/middleware"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
+	"goacore/internal/middleware"
+	"goacore/internal/models"
+	"goacore/internal/services"
 	"golang.org/x/crypto/bcrypt"
 )
 

@@ -7,16 +7,18 @@ import (
 	"log/slog"
 	"time"
 
-	"goacloud/internal/config"
-	"goacloud/internal/models"
-	"goacloud/internal/services"
-	"goacloud/internal/sse"
+	"goacore/internal/config"
+	"goacore/internal/models"
+	"goacore/internal/services"
+	"goacore/internal/sse"
 )
 
 // StartCacheWorker starts the background worker that updates the VM IP cache and Proxmox stats cache.
-func StartCacheWorker(ctx context.Context, db *sql.DB, cfg *config.Config, proxmox *services.ProxmoxService, cache *models.ProxmoxCache, broker *sse.Broker) {
+// Proxmox credentials are read live from the ConfigStore on every tick (Snapshot),
+// so an in-app re-onboarding takes effect on the next cycle without a restart.
+func StartCacheWorker(ctx context.Context, db *sql.DB, store *config.ConfigStore, proxmox *services.ProxmoxService, cache *models.ProxmoxCache, broker *sse.Broker) {
 	slog.Info("Starting VM Cache Worker...")
-	updateVMCache(db, cfg, proxmox, cache, broker)
+	updateVMCache(db, store, proxmox, cache, broker)
 
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -27,19 +29,22 @@ func StartCacheWorker(ctx context.Context, db *sql.DB, cfg *config.Config, proxm
 			slog.Info("Cache Worker stopped")
 			return
 		case <-ticker.C:
-			updateVMCache(db, cfg, proxmox, cache, broker)
+			updateVMCache(db, store, proxmox, cache, broker)
 		}
 	}
 }
 
-func updateVMCache(db *sql.DB, cfg *config.Config, proxmox *services.ProxmoxService, cache *models.ProxmoxCache, broker *sse.Broker) {
-	if cfg.ProxmoxURL == "" || cfg.ProxmoxTokenID == "" {
+func updateVMCache(db *sql.DB, store *config.ConfigStore, proxmox *services.ProxmoxService, cache *models.ProxmoxCache, broker *sse.Broker) {
+	// Lock-free, always-coherent read of the live Proxmox connection. Re-read each
+	// tick so a hot-reload is picked up on the next cycle.
+	pm := store.ProxmoxSnapshot()
+	if !pm.Configured() {
 		slog.Info("Worker: Missing Proxmox configuration")
 		return
 	}
 
 	slog.Info("Worker: Updating VM IP cache...")
-	stats, err := proxmox.GetStats(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, true, true)
+	stats, err := proxmox.GetStats(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret, true, true)
 	if err != nil {
 		slog.Error("Worker Error", "error", err)
 		return
@@ -78,4 +83,13 @@ func updateVMCache(db *sql.DB, cfg *config.Config, proxmox *services.ProxmoxServ
 	}
 
 	slog.Info("Worker: VM cache updated", "count", len(stats.VMs))
+}
+
+// RefreshVMCache runs a single VM-cache update synchronously, out of band from the
+// ticker. The onboarding handler calls it right after a successful Proxmox Save so
+// the VM list / stats are populated immediately, without waiting for the next tick.
+// It is safe to call concurrently with the worker (all writes are DB upserts and a
+// mutex-guarded cache).
+func RefreshVMCache(db *sql.DB, store *config.ConfigStore, proxmox *services.ProxmoxService, cache *models.ProxmoxCache, broker *sse.Broker) {
+	updateVMCache(db, store, proxmox, cache, broker)
 }

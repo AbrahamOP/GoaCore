@@ -29,9 +29,38 @@ jobs:
       - name: Build
         run: CGO_ENABLED=0 go build -o bin/goacloud ./cmd/server
 
+  # The goabackup SSH helper is the AUTHORITATIVE security boundary on the Proxmox
+  # host (forced-command, closed op set, the readonly 9500-9599 sandbox VMID guard).
+  # The Go anti-drift test (TestSandboxVMIDRangeMatchesHelper, run in the build job)
+  # already fails if the Go range diverges from the helper's VMID_SANDBOX_MIN/MAX —
+  # but only against the VENDORED copy under deploy/goabackup/. This job validates
+  # that copy in its own right (syntax, lint, behaviour) so a broken or weakened
+  # helper blocks a deploy: deploy-dev/prod depend on it. The harness stubs every
+  # external command (pvesm/lvs/zfs/zpool/df/rclone), so it needs only bash and
+  # NEVER touches a real host.
+  helper:
+    name: Validate goabackup helper
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Bash syntax (bash -n)
+        run: bash -n deploy/goabackup/goabackup-runner.sh
+
+      - name: ShellCheck (errors only)
+        run: |
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck -S error deploy/goabackup/goabackup-runner.sh
+          else
+            echo "::warning::shellcheck not installed on runner — skipping lint (bash -n + harness still gate)"
+          fi
+
+      - name: Functional harness (stubbed, no host access)
+        run: bash deploy/goabackup/test-runner.sh
+
   deploy-dev:
     name: Deploy DEV
-    needs: build
+    needs: [build, helper]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
     steps:
@@ -66,7 +95,7 @@ jobs:
 
   deploy-prod:
     name: Deploy PROD
-    needs: build
+    needs: [build, helper]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
@@ -217,7 +246,7 @@ jobs:
 
   notify-pr:
     name: PR Check
-    needs: build
+    needs: [build, helper]
     runs-on: self-hosted
     if: github.event_name == 'pull_request'
     steps:

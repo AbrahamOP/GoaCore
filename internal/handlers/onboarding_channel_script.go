@@ -1,0 +1,184 @@
+package handlers
+
+import (
+	"strings"
+
+	"goacore/deploy/goabackup"
+)
+
+// buildInstallerScript renders the auditable, idempotent root install script the admin
+// runs on THEIR Proxmox. It is the heart of sub-lot E: GoaCore serves this text; it
+// NEVER connects to install. The script:
+//
+//   - is a single auditable block (helper inlined as a QUOTED heredoc — no shell
+//     expansion of the helper body, so what we sha256 is exactly what lands on disk),
+//   - publishes + VERIFIES the embedded helper's sha256 (integrity survives a -k fetch
+//     over the self-signed cert: a tampered body aborts the install),
+//   - is idempotent and re-runnable: getent-guarded useradd, authorized_keys written in
+//     OVERWRITE (one canal key — re-running rotates cleanly), sudoers written atomically
+//     with `visudo -cf` and a HARD fail on an invalid file (never a broken sudoers),
+//   - ends with a real self-test (disk-free over the forced command) so the admin sees
+//     green/red immediately,
+//   - exfiltrates NOTHING (no outbound POST; only the public key — already public —
+//     was injected by the server).
+//
+// Only two values are interpolated by the SERVER: the public key line (pubkey) and the
+// instance host (for the human-readable echo). Both are non-secret. The pubkey is the
+// ed25519 authorized_keys line; we still wrap it defensively so a stray newline can't
+// inject a second authorized_keys entry.
+func buildInstallerScript(pubkey, instanceHost string) string {
+	// Defensive: collapse the pubkey to its single first line (an authorized_keys entry
+	// is one line; a generated ed25519 line never contains a newline, but we guard against
+	// a malformed extra_json so the heredoc can't grow a second key line).
+	pub := pubkey
+	if i := strings.IndexAny(pub, "\r\n"); i >= 0 {
+		pub = pub[:i]
+	}
+	pub = strings.TrimSpace(pub)
+
+	sha := helperSHA256()
+	host := sanitizeForEcho(instanceHost)
+
+	// The helper body is inlined verbatim between a QUOTED heredoc delimiter so bash does
+	// not touch a single byte — guaranteeing the on-disk file hashes to `sha`.
+	helper := goabackup.Runner
+
+	var b strings.Builder
+	b.WriteString(`#!/usr/bin/env bash
+# =============================================================================
+# GoaCore — installation du canal de sauvegarde (goabackup) — À EXÉCUTER EN ROOT
+# =============================================================================
+# Ce script est SERVI par votre instance GoaCore (` + host + `). Il n'ouvre AUCUNE
+# connexion sortante : la seule donnée injectée par le serveur est la clé PUBLIQUE
+# ed25519 ci-dessous. Relisez-le entièrement avant de l'exécuter.
+#
+# Il est IDEMPOTENT (ré-exécutable sans empiler) : il (re)crée l'utilisateur de
+# service 'goabackup', pose le helper read-only signé (sha256 vérifié), écrit la
+# ligne authorized_keys à clé forcée, un sudoers validé par visudo, puis lance un
+# self-test 'disk-free' qui prouve que le canal fonctionne.
+# =============================================================================
+set -euo pipefail
+
+readonly GOABACKUP_USER="goabackup"
+readonly GOABACKUP_HOME="/home/goabackup"
+readonly HELPER_PATH="/usr/local/bin/goabackup-runner.sh"
+readonly SUDOERS_PATH="/etc/sudoers.d/goabackup"
+readonly LOG_PATH="/var/log/goabackup-runner.log"
+readonly EXPECTED_SHA256="` + sha + `"
+# La ligne de clé publique ed25519 (PUBLIQUE — jamais la clé privée).
+readonly PUBKEY="` + pub + `"
+
+err()  { printf '\033[31m[ERREUR]\033[0m %s\n' "$*" >&2; }
+ok()   { printf '\033[32m[OK]\033[0m %s\n' "$*"; }
+info() { printf '\033[36m[..]\033[0m %s\n' "$*"; }
+
+if [[ "$(id -u)" -ne 0 ]]; then
+    err "Ce script doit être exécuté en root (sudo bash $0)."
+    exit 1
+fi
+
+# --- 1. Utilisateur de service (idempotent via getent ; shell /bin/bash IMPÉRATIF) ---
+if getent passwd "$GOABACKUP_USER" >/dev/null 2>&1; then
+    ok "Utilisateur '$GOABACKUP_USER' déjà présent."
+    # S'assurer que le shell est un vrai shell (un /bin/false casserait le forced-command).
+    current_shell="$(getent passwd "$GOABACKUP_USER" | cut -d: -f7)"
+    if [[ "$current_shell" != "/bin/bash" ]]; then
+        usermod -s /bin/bash "$GOABACKUP_USER"
+        ok "Shell de '$GOABACKUP_USER' corrigé en /bin/bash."
+    fi
+else
+    useradd -r -m -d "$GOABACKUP_HOME" -s /bin/bash "$GOABACKUP_USER"
+    ok "Utilisateur de service '$GOABACKUP_USER' créé (/bin/bash)."
+fi
+
+# --- 2. Helper read-only signé (heredoc QUOTÉ : zéro expansion ; sha256 vérifié) ---
+info "Écriture du helper $HELPER_PATH puis vérification d'intégrité…"
+tmp_helper="$(mktemp)"
+trap 'rm -f "$tmp_helper" "${sudoers_tmp:-}"' EXIT
+cat > "$tmp_helper" <<'GOABACKUP_RUNNER_EOF'
+`)
+	b.WriteString(helper)
+	if !strings.HasSuffix(helper, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString(`GOABACKUP_RUNNER_EOF
+
+actual_sha="$(sha256sum "$tmp_helper" | awk '{print $1}')"
+if [[ "$actual_sha" != "$EXPECTED_SHA256" ]]; then
+    err "Intégrité du helper INVALIDE : attendu $EXPECTED_SHA256, obtenu $actual_sha."
+    err "Le script a peut-être été altéré en transit — abandon SANS rien installer."
+    exit 1
+fi
+install -o root -g root -m 0755 "$tmp_helper" "$HELPER_PATH"
+ok "Helper installé et vérifié ($HELPER_PATH, sha256 OK)."
+
+# --- 3. authorized_keys à clé forcée (OVERWRITE : une seule clé canal) ---
+install -d -o "$GOABACKUP_USER" -g "$GOABACKUP_USER" -m 0700 "$GOABACKUP_HOME/.ssh"
+auth_line="command=\"sudo $HELPER_PATH\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty $PUBKEY"
+printf '%s\n' "$auth_line" > "$GOABACKUP_HOME/.ssh/authorized_keys"
+chown "$GOABACKUP_USER:$GOABACKUP_USER" "$GOABACKUP_HOME/.ssh/authorized_keys"
+chmod 600 "$GOABACKUP_HOME/.ssh/authorized_keys"
+ok "authorized_keys posée (forced-command, clé courante — l'ancienne clé est révoquée)."
+
+# --- 4. Sudoers (écriture ATOMIQUE + visudo -cf ; ÉCHEC DUR si invalide) ---
+sudoers_tmp="$(mktemp)"
+cat > "$sudoers_tmp" <<SUDOERS_EOF
+Defaults:$GOABACKUP_USER env_keep+="SSH_ORIGINAL_COMMAND"
+Defaults:$GOABACKUP_USER env_keep+="SSH_CONNECTION"
+$GOABACKUP_USER ALL=(root) NOPASSWD: $HELPER_PATH
+SUDOERS_EOF
+chmod 0440 "$sudoers_tmp"
+if visudo -cf "$sudoers_tmp" >/dev/null 2>&1; then
+    install -o root -g root -m 0440 "$sudoers_tmp" "$SUDOERS_PATH"
+    ok "Sudoers validé (visudo -cf) et installé ($SUDOERS_PATH)."
+else
+    err "Sudoers généré INVALIDE — abandon SANS toucher à /etc/sudoers.d (sécurité)."
+    exit 1
+fi
+
+# --- 5. Journal (perms restrictives) ---
+touch "$LOG_PATH"
+chmod 600 "$LOG_PATH"
+ok "Journal initialisé ($LOG_PATH, 600)."
+
+# --- 6. Prérequis rclone (AVERTISSEMENT, pas un échec) ---
+if [[ ! -f /root/.config/rclone/rclone.conf ]]; then
+    info "rclone non configuré (/root/.config/rclone/rclone.conf absent)."
+    info "  → La sauvegarde locale et les tests de restauration fonctionnent déjà."
+    info "  → Pour l'off-site, lancez 'rclone config' (voir la section Connexion cloud dans GoaCore)."
+fi
+
+# --- 7. Self-test : disk-free via le forced-command (preuve de bout en bout) ---
+info "Self-test du canal (disk-free via la commande forcée)…"
+selftest_out="$(SSH_ORIGINAL_COMMAND='disk-free' sudo -u "$GOABACKUP_USER" sudo "$HELPER_PATH" 2>/dev/null || true)"
+if printf '%s' "$selftest_out" | grep -q '"ok":true'; then
+    ok "Self-test réussi : le canal répond."
+    printf '     %s\n' "$selftest_out"
+    echo
+    ok "Installation terminée. Revenez dans GoaCore et cliquez « Vérifier l'installation »."
+    exit 0
+else
+    err "Self-test ÉCHOUÉ. Le helper est installé mais n'a pas répondu correctement."
+    err "Sortie : ${selftest_out:-<vide>}"
+    err "Vérifiez : sudo -u $GOABACKUP_USER sudo $HELPER_PATH (avec SSH_ORIGINAL_COMMAND='disk-free')."
+    exit 1
+fi
+`)
+	return b.String()
+}
+
+// sanitizeForEcho keeps only safe characters for a value echoed inside a shell comment
+// line (the instance host). It is purely cosmetic — the host is never executed — but it
+// prevents a weird r.Host from breaking the comment block. Allowed: host/port chars.
+func sanitizeForEcho(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.' || r == '-' || r == ':' || r == '_':
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}

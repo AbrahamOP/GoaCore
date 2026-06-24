@@ -3,13 +3,31 @@ package services
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
 
+// neutralizeDiscord defuses user-controlled text before it is embedded in a
+// Discord message. It strips backticks (which would break out of code spans /
+// fences) and disarms mentions (@everyone, @here, <@id>, <@&role>) by inserting a
+// zero-width space after each "@", so the client no longer parses them as pings.
+func neutralizeDiscord(s string) string {
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "@", "@​")
+	return s
+}
+
 // DiscordBot wraps a discordgo session for sending alerts.
+//
+// token is retained ONLY so the registry's hot-reload (ApplyDiscord) can detect a
+// token change for its no-op short-circuit; it is never logged, echoed, or sent to a
+// template. The struct is immutable after NewDiscordBot, so the whole *DiscordBot is
+// swapped on a reload (never a field), and every Send*/IsReady nil-guards on the
+// session — so no per-send lock is needed.
 type DiscordBot struct {
 	session          *discordgo.Session
+	token            string
 	channelID        string
 	authChannelID    string
 	ansibleChannelID string
@@ -33,6 +51,7 @@ func NewDiscordBot(token, channelID, authChannelID, ansibleChannelID string) (*D
 	slog.Info("Discord Bot is now running", "channel", channelID, "auth_channel", authChannelID, "ansible_channel", ansibleChannelID)
 	return &DiscordBot{
 		session:          session,
+		token:            token,
 		channelID:        channelID,
 		authChannelID:    authChannelID,
 		ansibleChannelID: ansibleChannelID,
@@ -72,7 +91,7 @@ func (d *DiscordBot) SendAlert(title, message, severity string) error {
 		Description: message,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Security",
+			Text: "GoaCore Security",
 		},
 	}
 
@@ -108,7 +127,7 @@ func (d *DiscordBot) SendAnsibleAlert(playbook, vmName string, vmid int, status,
 		Description: description,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Ansible Scheduler",
+			Text: "GoaCore Ansible Scheduler",
 		},
 	}
 
@@ -118,6 +137,136 @@ func (d *DiscordBot) SendAnsibleAlert(playbook, vmName string, vmid int, status,
 	}
 
 	_, err := d.session.ChannelMessageSendEmbed(channelID, embed)
+	return err
+}
+
+// SendBackupAlert sends a backup execution notification embed to the main channel.
+// status: "started", "completed" or "failed".
+func (d *DiscordBot) SendBackupAlert(target string, vmid int, backupType, status, details string) error {
+	if d == nil || d.session == nil {
+		return fmt.Errorf("discord session not initialized")
+	}
+
+	color := 0x808080 // Grey — started
+	emoji := "⏳"
+	switch status {
+	case "completed":
+		color = 0x00ff00 // Green — success
+		emoji = "✅"
+	case "failed":
+		color = 0xff0000 // Red — failure
+		emoji = "❌"
+	}
+
+	// Neutralize untrusted fields (target name comes from Proxmox guest config,
+	// details may embed a Proxmox API error message) before building Markdown.
+	target = neutralizeDiscord(target)
+	details = neutralizeDiscord(details)
+
+	// Truncate details for Discord embed.
+	if len(details) > 1000 {
+		details = details[len(details)-1000:]
+	}
+
+	description := fmt.Sprintf("**Cible:** %s (%d)\n**Type:** `%s`\n**Statut:** %s %s", target, vmid, backupType, emoji, status)
+	if details != "" {
+		description += fmt.Sprintf("\n\n```\n%s\n```", details)
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "📦 Backup: " + target,
+		Description: description,
+		Color:       color,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GoaCore Backup",
+		},
+	}
+
+	_, err := d.session.ChannelMessageSendEmbed(d.channelID, embed)
+	return err
+}
+
+// SendRestoreTestAlert sends a restore-test verdict embed to the main channel.
+// verdict: "passed" or "failed" (anything else renders as a neutral state).
+func (d *DiscordBot) SendRestoreTestAlert(target string, vmid int, level, verdict string, rtoSec int, detail string) error {
+	if d == nil || d.session == nil {
+		return fmt.Errorf("discord session not initialized")
+	}
+
+	color := 0x808080 // Grey — neutral / running
+	emoji := "🧪"
+	switch verdict {
+	case "passed":
+		color = 0x00ff00 // Green
+		emoji = "✅"
+	case "failed":
+		color = 0xff0000 // Red
+		emoji = "❌"
+	}
+
+	// Neutralize untrusted fields (target name from Proxmox guest config; detail
+	// may embed a Proxmox API error message) before building Markdown.
+	target = neutralizeDiscord(target)
+	detail = neutralizeDiscord(detail)
+	if len(detail) > 1000 {
+		detail = detail[len(detail)-1000:]
+	}
+
+	description := fmt.Sprintf("**Cible:** %s\n**Niveau:** `%s`\n**Verdict:** %s %s", target, level, emoji, verdict)
+	if vmid > 0 {
+		description += fmt.Sprintf("\n**Sandbox VMID:** `%d`", vmid)
+	}
+	if rtoSec > 0 {
+		description += fmt.Sprintf("\n**RTO:** %ds", rtoSec)
+	}
+	if detail != "" {
+		description += fmt.Sprintf("\n\n```\n%s\n```", detail)
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🧪 Test de restauration: " + target,
+		Description: description,
+		Color:       color,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GoaCore Restore Test",
+		},
+	}
+
+	_, err := d.session.ChannelMessageSendEmbed(d.channelID, embed)
+	return err
+}
+
+// SendZombieSandboxAlert warns that a disposable restore-test sandbox guest could
+// not be destroyed and is now leaking on the host — a human must intervene before
+// it accumulates and fills the disk. vmid is always in the sandbox range.
+func (d *DiscordBot) SendZombieSandboxAlert(vmid int, detail string) error {
+	if d == nil || d.session == nil {
+		return fmt.Errorf("discord session not initialized")
+	}
+
+	// detail may embed a Proxmox API error message — neutralize before Markdown.
+	detail = neutralizeDiscord(detail)
+	if len(detail) > 1000 {
+		detail = detail[len(detail)-1000:]
+	}
+
+	description := fmt.Sprintf(
+		"⚠️ Le sandbox de test de restauration **VMID `%d`** n'a pas pu être détruit.\n"+
+			"Intervention manuelle requise (ce guest jetable consomme du disque).", vmid)
+	if detail != "" {
+		description += fmt.Sprintf("\n\n```\n%s\n```", detail)
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "🧟 Sandbox zombie non détruit",
+		Description: description,
+		Color:       0xff0000, // Red — needs intervention
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GoaCore Restore Test",
+		},
+	}
+
+	_, err := d.session.ChannelMessageSendEmbed(d.channelID, embed)
 	return err
 }
 
@@ -142,7 +291,7 @@ func (d *DiscordBot) SendAuthAlert(title, message string, blocked bool) error {
 		Description: message,
 		Color:       color,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCloud Auth Monitor",
+			Text: "GoaCore Auth Monitor",
 		},
 	}
 
