@@ -18,9 +18,8 @@ services:
     image: goacloud:latest
     container_name: goacloud_app
     ports:
-      # HTTPS de l'interface (point d'entrée principal). HTTP interne sur 8080.
+      # HTTPS de l'interface (point d'entrée principal). HTTP interne sur 8080, non expose sur l hote (pas de HTTP en clair + evite les collisions de port). A decommenter si besoin.
       - "8443:8443"
-      - "8080:8080"
     environment:
       # --- Base de données (le réseau interne de compose résout "db") ---
       - DB_HOST=db:3306
