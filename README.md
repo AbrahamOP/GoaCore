@@ -98,8 +98,8 @@ GoaCore est conçu **souverain et privacy-by-design**, et ce n'est pas un argume
 ### 1. Cloner le dépôt
 
 ```bash
-git clone https://github.com/<owner>/goacloud.git
-cd goacloud
+git clone https://github.com/<owner>/goacore.git
+cd goacore
 ```
 
 ### 2. Variables minimales
