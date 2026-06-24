@@ -250,6 +250,18 @@ func Migrate(db *sql.DB) {
 		"ALTER TABLE backup_runs ADD COLUMN destination VARCHAR(20) NOT NULL DEFAULT 'local'",
 		"ALTER TABLE backup_runs ADD COLUMN remote VARCHAR(64) NOT NULL DEFAULT ''",
 		"ALTER TABLE backup_runs ADD COLUMN push_status VARCHAR(20) NOT NULL DEFAULT ''",
+		// Ansible scheduler hardening (Lot C — non-root). These are ADDITIVE/SAFE and
+		// idempotent: they NEVER drop the column or rewrite existing rows.
+		//   - become: opt-in privilege escalation (sudo) for non-root remote users.
+		//     Defaults to FALSE so existing rows keep their current behaviour.
+		//   - remote_user DROP DEFAULT: kills the unsafe DEFAULT 'root' (root SSH is
+		//     disabled everywhere — PermitRootLogin=no — so a new schedule must never
+		//     silently fall back to 'root'). MySQL 8 syntax: ALTER COLUMN ... DROP
+		//     DEFAULT. The column stays NOT NULL: the application now REQUIRES an
+		//     explicit remote_user at creation, so no INSERT relies on the default.
+		//     Existing 'root' rows are LEFT UNTOUCHED on purpose (see the WARN below).
+		"ALTER TABLE ansible_schedules ADD COLUMN become BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE ansible_schedules ALTER COLUMN remote_user DROP DEFAULT",
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {
@@ -257,5 +269,15 @@ func Migrate(db *sql.DB) {
 				slog.Info("DB migration (may already exist)", "sql", m, "error", err)
 			}
 		}
+	}
+
+	// Warn (non-fatal) if any existing schedule still targets the 'root' SSH user:
+	// with PermitRootLogin=no on the fleet, those schedules fail UNREACHABLE. We do
+	// NOT rewrite them blindly (no safe nominative user to pick) — the operator must
+	// edit them to a non-root user, optionally enabling become (sudo) for escalation.
+	var rootSchedules int
+	if err := db.QueryRow("SELECT COUNT(*) FROM ansible_schedules WHERE remote_user = 'root'").Scan(&rootSchedules); err == nil && rootSchedules > 0 {
+		slog.Warn("Ansible schedules still target the 'root' SSH user; these will fail if root SSH login is disabled (PermitRootLogin=no) — recreate them with a non-root user and enable 'become' for sudo escalation",
+			"count", rootSchedules)
 	}
 }

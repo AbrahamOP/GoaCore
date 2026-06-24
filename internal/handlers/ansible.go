@@ -62,18 +62,27 @@ func (h *Handler) HandleAnsible(w http.ResponseWriter, r *http.Request) {
 		totalPlaybooks += len(files)
 	}
 
+	// Optional suggested SSH user (env ANSIBLE_DEFAULT_REMOTE_USER); empty by default,
+	// so the form ships with NO 'root' fallback and the admin must pick a user.
+	defaultRemoteUser := ""
+	if h.Config != nil {
+		defaultRemoteUser = h.Config.AnsibleDefaultRemoteUser
+	}
+
 	data := struct {
-		Playbooks       map[string][]string
-		VMs             []models.VM
-		Keys            []models.SSHKey
-		ActiveSchedules int
-		TotalPlaybooks  int
+		Playbooks         map[string][]string
+		VMs               []models.VM
+		Keys              []models.SSHKey
+		ActiveSchedules   int
+		TotalPlaybooks    int
+		DefaultRemoteUser string
 	}{
-		Playbooks:       playbooks,
-		VMs:             vms,
-		Keys:            keys,
-		ActiveSchedules: activeSchedules,
-		TotalPlaybooks:  totalPlaybooks,
+		Playbooks:         playbooks,
+		VMs:               vms,
+		Keys:              keys,
+		ActiveSchedules:   activeSchedules,
+		TotalPlaybooks:    totalPlaybooks,
+		DefaultRemoteUser: defaultRemoteUser,
 	}
 
 	if err = h.Templates.ExecuteTemplate(w, "ansible.html", data); err != nil {
@@ -97,9 +106,17 @@ func (h *Handler) HandleAnsibleRun(w http.ResponseWriter, r *http.Request) {
 		VMID     int    `json:"vmid"`
 		KeyID    int    `json:"key_id"`
 		User     string `json:"user"`
+		Become   bool   `json:"become"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// remote_user is mandatory: root SSH is disabled fleet-wide (PermitRootLogin=no),
+	// so a run must always target an explicit, non-root user.
+	if strings.TrimSpace(req.User) == "" {
+		http.Error(w, "SSH user is required", http.StatusBadRequest)
 		return
 	}
 
@@ -139,7 +156,7 @@ func (h *Handler) HandleAnsibleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmdOut, cleanup, err := services.RunPlaybook(playbookPath, targetIP, sshKey.PrivateKey, req.User)
+	cmdOut, cleanup, err := services.RunPlaybook(playbookPath, targetIP, sshKey.PrivateKey, req.User, req.Become)
 	if err != nil {
 		fmt.Fprintf(w, "Configuration Error: %v\n", err)
 		return

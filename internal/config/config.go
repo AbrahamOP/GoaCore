@@ -69,6 +69,12 @@ type Config struct {
 	DiscordAuthChannel    string
 	DiscordAnsibleChannel string
 
+	// AnsibleDefaultRemoteUser is an OPTIONAL suggested SSH user pre-filled in the
+	// schedule-creation form (env ANSIBLE_DEFAULT_REMOTE_USER). Default empty: the
+	// admin MUST pick a remote_user explicitly — there is deliberately NO 'root'
+	// fallback (root SSH is disabled fleet-wide, PermitRootLogin=no).
+	AnsibleDefaultRemoteUser string
+
 	// GoaBackup restore-test channel (read-only SSH helper on the Proxmox host)
 	GoabackupSSHHost    string
 	GoabackupSSHUser    string
@@ -133,9 +139,11 @@ func Load() *Config {
 		DiscordChannelID:      getEnv("DISCORD_CHANNEL_ID", ""),
 		DiscordAuthChannel:    getEnv("DISCORD_AUTH_CHANNEL_ID", ""),
 		DiscordAnsibleChannel: getEnv("DISCORD_ANSIBLE_CHANNEL_ID", ""),
-		GoabackupSSHHost:      getEnv("GOABACKUP_SSH_HOST", ""),
-		GoabackupSSHUser:      getEnv("GOABACKUP_SSH_USER", "goabackup"),
-		GoabackupSSHKeyFile:   getEnv("GOABACKUP_SSH_KEY_FILE", ""),
+		// Empty by default: no 'root' suggestion. The admin must choose a user.
+		AnsibleDefaultRemoteUser: getEnv("ANSIBLE_DEFAULT_REMOTE_USER", ""),
+		GoabackupSSHHost:         getEnv("GOABACKUP_SSH_HOST", ""),
+		GoabackupSSHUser:         getEnv("GOABACKUP_SSH_USER", "goabackup"),
+		GoabackupSSHKeyFile:      getEnv("GOABACKUP_SSH_KEY_FILE", ""),
 
 		BackupTestRotationEnabled: getEnvBool("GOABACKUP_TEST_ROTATION_ENABLED", false),
 		BackupTestHour:            getEnvIntBounded("GOABACKUP_TEST_HOUR", 4, 0, 23),

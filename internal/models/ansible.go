@@ -12,6 +12,7 @@ type AnsibleSchedule struct {
 	KeyName         string     `json:"key_name"`
 	IntervalMinutes int        `json:"interval_minutes"`
 	RemoteUser      string     `json:"remote_user"`
+	Become          bool       `json:"become"`
 	Enabled         bool       `json:"enabled"`
 	NextRun         time.Time  `json:"next_run"`
 	LastRun         *time.Time `json:"last_run"`
