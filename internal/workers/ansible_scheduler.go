@@ -15,7 +15,12 @@ import (
 )
 
 // StartAnsibleScheduler checks for due ansible schedules every 60 seconds and executes them.
-func StartAnsibleScheduler(ctx context.Context, db *sql.DB, sshService *services.SSHService, discord *services.DiscordBot) {
+//
+// discord is a DiscordProvider (the registry): the live bot is re-resolved at the head
+// of each tick (in runDueSchedules) and the resulting snapshot is handed to the async
+// per-job goroutines. Because the executions run async, the bot MUST be re-read per
+// tick — never captured at start — so an in-app Discord hot-reload reaches them.
+func StartAnsibleScheduler(ctx context.Context, db *sql.DB, sshService *services.SSHService, discord services.DiscordProvider) {
 	slog.Info("Starting Ansible Scheduler Worker...")
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
@@ -30,7 +35,12 @@ func StartAnsibleScheduler(ctx context.Context, db *sql.DB, sshService *services
 	}
 }
 
-func runDueSchedules(db *sql.DB, sshService *services.SSHService, discord *services.DiscordBot) {
+func runDueSchedules(db *sql.DB, sshService *services.SSHService, provider services.DiscordProvider) {
+	// Snapshot the live bot once per tick; the async jobs below use this snapshot.
+	var discord *services.DiscordBot
+	if provider != nil {
+		discord = provider.Discord()
+	}
 	rows, err := db.Query(`SELECT id, playbook, vmid, key_id, interval_minutes, remote_user
 		FROM ansible_schedules WHERE enabled = TRUE AND next_run <= NOW()`)
 	if err != nil {

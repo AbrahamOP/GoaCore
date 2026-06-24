@@ -462,7 +462,9 @@ func (s *BackupService) finishTest(testID int, verdict string, rtoSec, sandboxVM
 // notifyRestoreTest sends a Discord restore-test alert if a bot is configured.
 // The network call runs in its own recover-guarded goroutine (nil-safe).
 func (s *BackupService) notifyRestoreTest(target string, vmid int, level, verdict, detail string) {
-	if s.discord == nil || !s.discord.IsReady() {
+	// Resolve the LIVE bot at emit time so a hot-reload swap reaches this alert.
+	discord := s.discordBot()
+	if discord == nil || !discord.IsReady() {
 		return
 	}
 	go func() {
@@ -471,7 +473,7 @@ func (s *BackupService) notifyRestoreTest(target string, vmid int, level, verdic
 				slog.Error("restore-test: panic in Discord notification recovered", "panic", rec)
 			}
 		}()
-		if err := s.discord.SendRestoreTestAlert(target, vmid, level, verdict, 0, detail); err != nil {
+		if err := discord.SendRestoreTestAlert(target, vmid, level, verdict, 0, detail); err != nil {
 			slog.Error("restore-test: Discord notification failed", "error", err)
 		}
 	}()
@@ -481,7 +483,9 @@ func (s *BackupService) notifyRestoreTest(target string, vmid int, level, verdic
 // not be destroyed (leaked). The network call runs in its own recover-guarded
 // goroutine (nil-safe).
 func (s *BackupService) notifyZombieSandbox(vmid int, cause error) {
-	if s.discord == nil || !s.discord.IsReady() {
+	// Resolve the LIVE bot at emit time so a hot-reload swap reaches this alert.
+	discord := s.discordBot()
+	if discord == nil || !discord.IsReady() {
 		return
 	}
 	detail := ""
@@ -494,7 +498,7 @@ func (s *BackupService) notifyZombieSandbox(vmid int, cause error) {
 				slog.Error("restore-test: panic in zombie Discord notification recovered", "panic", rec)
 			}
 		}()
-		if err := s.discord.SendZombieSandboxAlert(vmid, detail); err != nil {
+		if err := discord.SendZombieSandboxAlert(vmid, detail); err != nil {
 			slog.Error("restore-test: zombie Discord notification failed", "error", err)
 		}
 	}()

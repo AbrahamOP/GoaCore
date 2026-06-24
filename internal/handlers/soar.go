@@ -17,14 +17,31 @@ func (h *Handler) HandleSoar(w http.ResponseWriter, r *http.Request) {
 	session, _ := h.SessionStore.Get(r, "goacloud-session")
 	currentUser, _ := session.Values["username"].(string)
 
+	// Resolve the effective AI provider/model for display with the boot precedence
+	// DB > env, so the page reflects an in-app onboarding change without a restart.
+	aiProvider, aiModel := h.Config.AIProvider, h.Config.AIModel
+	if conn, _, err := h.Connections.GetAI(); err == nil && conn != nil {
+		if provider, _ := services.AIExtra(conn); provider != "" {
+			aiProvider = provider
+		}
+		if conn.TokenID != "" {
+			aiModel = conn.TokenID
+		}
+	}
+	// A nil AI() snapshot means the service is unconfigured/disabled: surface that so
+	// the page does not advertise an enrichment provider that will never fire.
+	aiConfigured := h.Registry.AI() != nil
+
 	data := struct {
-		User       string
-		AIProvider string
-		AIModel    string
+		User         string
+		AIProvider   string
+		AIModel      string
+		AIConfigured bool
 	}{
-		User:       currentUser,
-		AIProvider: h.Config.AIProvider,
-		AIModel:    h.Config.AIModel,
+		User:         currentUser,
+		AIProvider:   aiProvider,
+		AIModel:      aiModel,
+		AIConfigured: aiConfigured,
 	}
 
 	if err := h.Templates.ExecuteTemplate(w, "soar.html", data); err != nil {
@@ -89,7 +106,9 @@ func (h *Handler) HandleDiscordTest(w http.ResponseWriter, r *http.Request) {
 
 // HandleAITest tests the AI client connectivity.
 func (h *Handler) HandleAITest(w http.ResponseWriter, r *http.Request) {
-	if h.AIClient == nil {
+	// Read the AI client live from the registry (hot-reloadable); nil ⇒ unconfigured.
+	ai := h.Registry.AI()
+	if ai == nil {
 		http.Error(w, "AI Client not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -97,7 +116,7 @@ func (h *Handler) HandleAITest(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	analysis, err := h.AIClient.EnrichAlert(ctx, services.AIAlertContext{
+	analysis, err := ai.EnrichAlert(ctx, services.AIAlertContext{
 		Title:       "Test Connection",
 		Description: "Testing connectivity to AI provider.",
 		AgentName:   "Debug-Node",
@@ -122,15 +141,18 @@ func (h *Handler) HandleAITest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) sendEnrichedDiscordAlert(alertCtx services.AIAlertContext, severity string) {
-	if h.Discord == nil || !h.Discord.IsReady() {
+	// Read the live Discord bot and AI client from the registry at emit time, so an
+	// in-app hot-reload of either is picked up without restart (both nil-guarded).
+	discord := h.Registry.Discord()
+	if discord == nil || !discord.IsReady() {
 		return
 	}
 
 	msg := alertCtx.Description
 
-	if h.AIClient != nil {
+	if ai := h.Registry.AI(); ai != nil {
 		aiCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		analysis, err := h.AIClient.EnrichAlert(aiCtx, alertCtx)
+		analysis, err := ai.EnrichAlert(aiCtx, alertCtx)
 		cancel()
 		if err == nil {
 			msg += fmt.Sprintf("\n\n🤖 **Analyse AI:**\n%s", analysis)
@@ -139,7 +161,7 @@ func (h *Handler) sendEnrichedDiscordAlert(alertCtx services.AIAlertContext, sev
 		}
 	}
 
-	h.Discord.SendAlert(alertCtx.Title, msg, severity)
+	discord.SendAlert(alertCtx.Title, msg, severity)
 }
 
 func (h *Handler) saveSoarConfig() error {

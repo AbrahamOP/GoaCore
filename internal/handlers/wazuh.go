@@ -12,7 +12,9 @@ import (
 
 // HandleWazuh renders the Wazuh agents page.
 func (h *Handler) HandleWazuh(w http.ResponseWriter, r *http.Request) {
-	if h.WazuhClient == nil {
+	// Read the Wazuh Manager API client live from the registry (hot-reloadable).
+	wazuh := h.Registry.Wazuh()
+	if wazuh == nil {
 		http.Error(w, "Wazuh not configured", http.StatusInternalServerError)
 		return
 	}
@@ -23,7 +25,7 @@ func (h *Handler) HandleWazuh(w http.ResponseWriter, r *http.Request) {
 
 	if len(agents) == 0 {
 		var err error
-		agents, err = h.WazuhClient.GetAgents()
+		agents, err = wazuh.GetAgents()
 		if err != nil {
 			http.Error(w, "Error fetching agents: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -114,12 +116,15 @@ func (h *Handler) HandleWazuhCVESummary(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) HandleWazuhGeoData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if h.WazuhIndexer == nil {
+	// Read the Wazuh Indexer client live from the registry (hot-reloadable). nil ⇒
+	// the service is unconfigured: return an empty set rather than erroring.
+	indexer := h.Registry.Indexer()
+	if indexer == nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
 
-	alerts, err := h.WazuhIndexer.GetRecentAlerts(24 * time.Hour)
+	alerts, err := indexer.GetRecentAlerts(24 * time.Hour)
 	if err != nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
@@ -143,13 +148,15 @@ func (h *Handler) HandleWazuhGeoData(w http.ResponseWriter, r *http.Request) {
 
 // HandleWazuhAgentsRefresh force-refreshes the Wazuh cache and returns updated agents as JSON.
 func (h *Handler) HandleWazuhAgentsRefresh(w http.ResponseWriter, r *http.Request) {
-	if h.WazuhClient == nil {
+	// Read the Wazuh Manager API client live from the registry (hot-reloadable).
+	wazuh := h.Registry.Wazuh()
+	if wazuh == nil {
 		http.Error(w, `{"error":"Wazuh not configured"}`, http.StatusInternalServerError)
 		return
 	}
 
 	// Trigger a synchronous update
-	agents, err := h.WazuhClient.GetAgents()
+	agents, err := wazuh.GetAgents()
 	if err == nil {
 		h.WazuhCache.Mutex.Lock()
 		h.WazuhCache.Agents = agents

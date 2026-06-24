@@ -112,8 +112,12 @@ type BackupService struct {
 	db       *sql.DB
 	proxmox  *ProxmoxService
 	cfgStore *config.ConfigStore
-	discord  *DiscordBot
-	channel  *ProxmoxChannel
+	// discordProvider yields the LIVE Discord bot at emit time (never a frozen
+	// pointer captured at wiring time), so a hot-reload swap reaches every alert.
+	// nil-safe: an unset provider, or one that returns a nil bot, simply skips the
+	// notification.
+	discordProvider DiscordProvider
+	channel         *ProxmoxChannel
 
 	// testInFlight tracks which target IDs currently have a restore test running,
 	// to enforce one test at a time per target (anti-concurrency).
@@ -142,9 +146,22 @@ func NewBackupService(db *sql.DB, proxmox *ProxmoxService, cfgStore *config.Conf
 	}
 }
 
-// SetDiscord wires a Discord bot for backup notifications (optional; nil-safe).
-func (s *BackupService) SetDiscord(d *DiscordBot) {
-	s.discord = d
+// SetDiscordProvider wires the LIVE Discord source for backup / restore-test
+// notifications (optional; nil-safe). It stores the provider (the registry), not a
+// bot, so every emit reads the CURRENT bot via discordBot() and a hot-reload swap is
+// picked up without re-wiring.
+func (s *BackupService) SetDiscordProvider(p DiscordProvider) {
+	s.discordProvider = p
+}
+
+// discordBot returns the live Discord bot at call time, or nil when Discord is
+// unconfigured / disabled (nil provider, or provider returning nil). Every emit site
+// MUST resolve through this, never cache the result, so a reload takes effect.
+func (s *BackupService) discordBot() *DiscordBot {
+	if s.discordProvider == nil {
+		return nil
+	}
+	return s.discordProvider.Discord()
 }
 
 // SetChannel wires the read-only Proxmox helper channel for restore testing
@@ -662,7 +679,9 @@ func (s *BackupService) finishRunDest(runID int, status string, size int64, arch
 // The actual network call runs in its own recover-guarded goroutine so a slow or
 // failing Discord can never sit in the critical path of finishRun / state polling.
 func (s *BackupService) notifyBackup(name string, vmid int, backupType, status, destLabel, details string) {
-	if s.discord == nil || !s.discord.IsReady() {
+	// Resolve the LIVE bot at emit time so a hot-reload swap reaches this alert.
+	discord := s.discordBot()
+	if discord == nil || !discord.IsReady() {
 		return
 	}
 	full := details
@@ -680,7 +699,7 @@ func (s *BackupService) notifyBackup(name string, vmid int, backupType, status, 
 				slog.Error("backup: panic in Discord notification recovered", "panic", rec)
 			}
 		}()
-		if err := s.discord.SendBackupAlert(name, vmid, backupType, status, full); err != nil {
+		if err := discord.SendBackupAlert(name, vmid, backupType, status, full); err != nil {
 			slog.Error("backup: Discord notification failed", "error", err)
 		}
 	}()

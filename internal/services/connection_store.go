@@ -10,8 +10,15 @@ import (
 	"goacloud/internal/models"
 )
 
-// serviceProxmox is the connections.service key for the Proxmox row.
-const serviceProxmox = "proxmox"
+// connections.service keys. One row per service; absence of a row means
+// "not configured" (there is deliberately no INSERT IGNORE seeding any of them).
+const (
+	serviceProxmox      = "proxmox"
+	serviceWazuh        = "wazuh"
+	serviceWazuhIndexer = "wazuh-indexer"
+	serviceAI           = "ai"
+	serviceDiscord      = "discord"
+)
 
 // ConnectionStore persists per-service infrastructure credentials in the
 // `connections` table. Only the service secret is encrypted (AES-256-GCM, same
@@ -37,20 +44,7 @@ func NewConnectionStore(db *sql.DB, enc *SSHService) *ConnectionStore {
 // errored and fall back to "not configured" (re-onboard). This is the SESSION_SECRET
 // rotation case — the ciphertext became undecipherable, exactly like SSH/MFA secrets.
 func (s *ConnectionStore) GetProxmox() (*models.Connection, string, error) {
-	conn, err := s.getConnection(serviceProxmox)
-	if err != nil {
-		return nil, "", err
-	}
-	if conn == nil {
-		return nil, "", nil
-	}
-	secret, derr := s.enc.DecryptData(conn.SecretEnc)
-	if derr != nil {
-		// Undecipherable secret (e.g. SESSION_SECRET changed). Surface it as an
-		// errored, unconfigured connection rather than crashing.
-		return conn, "", fmt.Errorf("decrypt proxmox secret: %w", derr)
-	}
-	return conn, secret, nil
+	return s.getDecrypted(serviceProxmox)
 }
 
 // getConnection reads a single connections row by service key. Returns (nil, nil)
@@ -98,16 +92,27 @@ func (s *ConnectionStore) SaveProxmox(form models.ProxmoxConnectionForm, updated
 }
 
 func (s *ConnectionStore) saveProxmox(form models.ProxmoxConnectionForm, updatedBy, source string) error {
-	secretEnc, err := s.enc.EncryptData(form.TokenSecret)
+	return s.save(serviceProxmox, form.URL, form.Node, form.TokenID, form.TokenSecret,
+		map[string]string{"storage": form.Storage, "bridge": form.Bridge}, updatedBy, source)
+}
+
+// save is the generic, service-neutral upsert behind every Save* wrapper. It
+// encrypts the secret (AES-256-GCM, SESSION_SECRET-derived key), marshals the
+// non-secret extra map to extra_json, and upserts the connections row marked
+// configured=1 / status='ok' (a successful live test is the caller's precondition,
+// exactly like the Proxmox path). node is unused by the non-Proxmox services and
+// stored empty for them. The SQL is identical to the original Proxmox upsert.
+func (s *ConnectionStore) save(service, url, node, tokenID, secret string, extra map[string]string, updatedBy, source string) error {
+	secretEnc, err := s.enc.EncryptData(secret)
 	if err != nil {
-		return fmt.Errorf("encrypt proxmox secret: %w", err)
+		return fmt.Errorf("encrypt %s secret: %w", service, err)
 	}
-	extra, err := json.Marshal(map[string]string{
-		"storage": form.Storage,
-		"bridge":  form.Bridge,
-	})
+	if extra == nil {
+		extra = map[string]string{}
+	}
+	extraJSON, err := json.Marshal(extra)
 	if err != nil {
-		return fmt.Errorf("marshal proxmox extra: %w", err)
+		return fmt.Errorf("marshal %s extra: %w", service, err)
 	}
 	_, err = s.db.Exec(
 		`INSERT INTO connections
@@ -119,11 +124,42 @@ func (s *ConnectionStore) saveProxmox(form models.ProxmoxConnectionForm, updated
 		   secret_enc = VALUES(secret_enc), extra_json = VALUES(extra_json),
 		   configured = 1, status = 'ok', last_tested_at = NOW(), last_error = '',
 		   source = VALUES(source), updated_by = VALUES(updated_by)`,
-		serviceProxmox, form.URL, form.Node, form.TokenID, secretEnc, string(extra), source, updatedBy)
+		service, url, node, tokenID, secretEnc, string(extraJSON), source, updatedBy)
 	if err != nil {
-		return fmt.Errorf("save proxmox connection: %w", err)
+		return fmt.Errorf("save %s connection: %w", service, err)
 	}
 	return nil
+}
+
+// getDecrypted loads a connection row and decrypts its secret. It returns
+// (nil, "", nil) when no row exists (clean "not configured"), and on an
+// undecipherable secret returns (conn, "", err) — never fatal, never a panic
+// (the SESSION_SECRET-rotation case). It is the generic engine behind every
+// Get* wrapper, identical in contract to GetProxmox.
+func (s *ConnectionStore) getDecrypted(service string) (*models.Connection, string, error) {
+	conn, err := s.getConnection(service)
+	if err != nil {
+		return nil, "", err
+	}
+	if conn == nil {
+		return nil, "", nil
+	}
+	secret, derr := s.enc.DecryptData(conn.SecretEnc)
+	if derr != nil {
+		return conn, "", fmt.Errorf("decrypt %s secret: %w", service, derr)
+	}
+	return conn, secret, nil
+}
+
+// delete removes a connection row by service key and returns the rows deleted.
+// It is the generic engine behind every Delete* wrapper.
+func (s *ConnectionStore) delete(service string) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM connections WHERE service = ?`, service)
+	if err != nil {
+		return 0, fmt.Errorf("delete %s connection: %w", service, err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // SetStatus records the outcome of the most recent live test for a service. It is
@@ -144,12 +180,7 @@ func (s *ConnectionStore) SetStatus(service, status, lastErr string) error {
 // next boot (or the live snapshot keeps the env value until then). Returns the
 // number of rows deleted.
 func (s *ConnectionStore) DeleteProxmox() (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM connections WHERE service = ?`, serviceProxmox)
-	if err != nil {
-		return 0, fmt.Errorf("delete proxmox connection: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	return s.delete(serviceProxmox)
 }
 
 // ImportFromEnv seeds the 'proxmox' connection row from the environment-derived
@@ -178,4 +209,178 @@ func ProxmoxExtra(c *models.Connection) (storage, bridge string) {
 		return "", ""
 	}
 	return c.Extra["storage"], c.Extra["bridge"]
+}
+
+// --- Wazuh Indexer quartet (service='wazuh-indexer') ---
+
+// GetWazuhIndexer loads the 'wazuh-indexer' row and decrypts its password. Same
+// contract as GetProxmox: (nil,"",nil) when absent, (conn,"",err) on an
+// undecipherable secret (never fatal).
+func (s *ConnectionStore) GetWazuhIndexer() (*models.Connection, string, error) {
+	return s.getDecrypted(serviceWazuhIndexer)
+}
+
+// SaveWazuhIndexer encrypts the password and upserts the 'wazuh-indexer' row.
+func (s *ConnectionStore) SaveWazuhIndexer(form models.WazuhIndexerConnectionForm, updatedBy string) error {
+	return s.saveWazuhIndexer(form, updatedBy, "db")
+}
+
+func (s *ConnectionStore) saveWazuhIndexer(form models.WazuhIndexerConnectionForm, updatedBy, source string) error {
+	return s.save(serviceWazuhIndexer, form.URL, "", form.User, form.Password, nil, updatedBy, source)
+}
+
+// DeleteWazuhIndexer removes the 'wazuh-indexer' row (rollback to env at next boot
+// / live RollbackToEnv via the registry).
+func (s *ConnectionStore) DeleteWazuhIndexer() (int64, error) {
+	return s.delete(serviceWazuhIndexer)
+}
+
+// ImportFromEnvWazuhIndexer seeds the 'wazuh-indexer' row from the environment in
+// one explicit click. Errors when the env carries no Wazuh Indexer URL.
+func (s *ConnectionStore) ImportFromEnvWazuhIndexer(cfg *config.Config) error {
+	if cfg.WazuhIndexerURL == "" {
+		return errors.New("no Wazuh Indexer configuration in environment to import")
+	}
+	form := models.WazuhIndexerConnectionForm{
+		URL:      cfg.WazuhIndexerURL,
+		User:     cfg.WazuhIndexerUser,
+		Password: cfg.WazuhIndexerPass,
+	}
+	return s.saveWazuhIndexer(form, "import-env", "env")
+}
+
+// --- Wazuh API quartet (service='wazuh') ---
+
+// GetWazuh loads the 'wazuh' row and decrypts its password.
+func (s *ConnectionStore) GetWazuh() (*models.Connection, string, error) {
+	return s.getDecrypted(serviceWazuh)
+}
+
+// SaveWazuh encrypts the password and upserts the 'wazuh' row.
+func (s *ConnectionStore) SaveWazuh(form models.WazuhConnectionForm, updatedBy string) error {
+	return s.saveWazuh(form, updatedBy, "db")
+}
+
+func (s *ConnectionStore) saveWazuh(form models.WazuhConnectionForm, updatedBy, source string) error {
+	return s.save(serviceWazuh, form.URL, "", form.User, form.Password, nil, updatedBy, source)
+}
+
+// DeleteWazuh removes the 'wazuh' row.
+func (s *ConnectionStore) DeleteWazuh() (int64, error) {
+	return s.delete(serviceWazuh)
+}
+
+// ImportFromEnvWazuh seeds the 'wazuh' row from the environment.
+func (s *ConnectionStore) ImportFromEnvWazuh(cfg *config.Config) error {
+	if cfg.WazuhAPIURL == "" {
+		return errors.New("no Wazuh API configuration in environment to import")
+	}
+	form := models.WazuhConnectionForm{
+		URL:      cfg.WazuhAPIURL,
+		User:     cfg.WazuhUser,
+		Password: cfg.WazuhPassword,
+	}
+	return s.saveWazuh(form, "import-env", "env")
+}
+
+// --- AI quartet (service='ai') ---
+
+// GetAI loads the 'ai' row and decrypts its api_key (empty for Ollama).
+func (s *ConnectionStore) GetAI() (*models.Connection, string, error) {
+	return s.getDecrypted(serviceAI)
+}
+
+// SaveAI encrypts the api_key (may be empty for Ollama) and upserts the 'ai' row.
+// provider and openai_base are non-secret and stored in extra_json.
+func (s *ConnectionStore) SaveAI(form models.AIConnectionForm, updatedBy string) error {
+	return s.saveAI(form, updatedBy, "db")
+}
+
+func (s *ConnectionStore) saveAI(form models.AIConnectionForm, updatedBy, source string) error {
+	extra := map[string]string{
+		"provider":    form.Provider,
+		"openai_base": form.OpenAIBaseURL,
+	}
+	return s.save(serviceAI, form.URL, "", form.Model, form.APIKey, extra, updatedBy, source)
+}
+
+// DeleteAI removes the 'ai' row.
+func (s *ConnectionStore) DeleteAI() (int64, error) {
+	return s.delete(serviceAI)
+}
+
+// ImportFromEnvAI seeds the 'ai' row from the environment. It accepts Ollama with
+// only a URL (no key) as well as OpenAI with a key; it errors only when there is
+// nothing usable to import (no provider/url/key at all).
+func (s *ConnectionStore) ImportFromEnvAI(cfg *config.Config) error {
+	if cfg.AIProvider == "" && cfg.AIURL == "" && cfg.AIAPIKey == "" {
+		return errors.New("no AI configuration in environment to import")
+	}
+	form := models.AIConnectionForm{
+		Provider:      cfg.AIProvider,
+		URL:           cfg.AIURL,
+		APIKey:        cfg.AIAPIKey,
+		Model:         cfg.AIModel,
+		OpenAIBaseURL: cfg.OpenAIBaseURL,
+	}
+	return s.saveAI(form, "import-env", "env")
+}
+
+// AIExtra extracts the provider/openai_base values from an 'ai' connection's
+// extra_json, with safe empty-string fallbacks.
+func AIExtra(c *models.Connection) (provider, openaiBase string) {
+	if c == nil || c.Extra == nil {
+		return "", ""
+	}
+	return c.Extra["provider"], c.Extra["openai_base"]
+}
+
+// --- Discord quartet (service='discord') ---
+
+// GetDiscord loads the 'discord' row and decrypts its bot token.
+func (s *ConnectionStore) GetDiscord() (*models.Connection, string, error) {
+	return s.getDecrypted(serviceDiscord)
+}
+
+// SaveDiscord encrypts the bot token and upserts the 'discord' row. channel id is
+// stored in token_id; the auth/ansible channels are non-secret extra_json fields.
+func (s *ConnectionStore) SaveDiscord(form models.DiscordConnectionForm, updatedBy string) error {
+	return s.saveDiscord(form, updatedBy, "db")
+}
+
+func (s *ConnectionStore) saveDiscord(form models.DiscordConnectionForm, updatedBy, source string) error {
+	extra := map[string]string{
+		"auth_channel":    form.AuthChannelID,
+		"ansible_channel": form.AnsibleChannelID,
+	}
+	return s.save(serviceDiscord, "", "", form.ChannelID, form.Token, extra, updatedBy, source)
+}
+
+// DeleteDiscord removes the 'discord' row.
+func (s *ConnectionStore) DeleteDiscord() (int64, error) {
+	return s.delete(serviceDiscord)
+}
+
+// ImportFromEnvDiscord seeds the 'discord' row from the environment. Errors when
+// the env carries no token or no main channel id (the minimum a bot needs).
+func (s *ConnectionStore) ImportFromEnvDiscord(cfg *config.Config) error {
+	if cfg.DiscordBotToken == "" || cfg.DiscordChannelID == "" {
+		return errors.New("no Discord configuration in environment to import")
+	}
+	form := models.DiscordConnectionForm{
+		Token:            cfg.DiscordBotToken,
+		ChannelID:        cfg.DiscordChannelID,
+		AuthChannelID:    cfg.DiscordAuthChannel,
+		AnsibleChannelID: cfg.DiscordAnsibleChannel,
+	}
+	return s.saveDiscord(form, "import-env", "env")
+}
+
+// DiscordExtra extracts the auth/ansible channel ids from a 'discord' connection's
+// extra_json, with safe empty-string fallbacks.
+func DiscordExtra(c *models.Connection) (authChannel, ansibleChannel string) {
+	if c == nil || c.Extra == nil {
+		return "", ""
+	}
+	return c.Extra["auth_channel"], c.Extra["ansible_channel"]
 }

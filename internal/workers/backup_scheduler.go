@@ -23,7 +23,11 @@ import (
 // Resilience: every tick runs inside a recover-guarded function so a panic or
 // error can never kill the worker (the SOAR worker once died this way). It only
 // stops on ctx.Done().
-func StartBackupTestScheduler(ctx context.Context, backup *services.BackupService, discord *services.DiscordBot) {
+//
+// This worker takes NO Discord handle: restore-test alerts are emitted by
+// BackupService itself (RunRestoreTest → notifyRestoreTest), which resolves the live
+// bot through its DiscordProvider at emit time. There is nothing to hot-reload here.
+func StartBackupTestScheduler(ctx context.Context, backup *services.BackupService) {
 	if backup == nil {
 		slog.Error("Backup test scheduler: nil backup service — not starting")
 		return

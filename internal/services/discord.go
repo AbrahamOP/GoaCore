@@ -19,8 +19,15 @@ func neutralizeDiscord(s string) string {
 }
 
 // DiscordBot wraps a discordgo session for sending alerts.
+//
+// token is retained ONLY so the registry's hot-reload (ApplyDiscord) can detect a
+// token change for its no-op short-circuit; it is never logged, echoed, or sent to a
+// template. The struct is immutable after NewDiscordBot, so the whole *DiscordBot is
+// swapped on a reload (never a field), and every Send*/IsReady nil-guards on the
+// session — so no per-send lock is needed.
 type DiscordBot struct {
 	session          *discordgo.Session
+	token            string
 	channelID        string
 	authChannelID    string
 	ansibleChannelID string
@@ -44,6 +51,7 @@ func NewDiscordBot(token, channelID, authChannelID, ansibleChannelID string) (*D
 	slog.Info("Discord Bot is now running", "channel", channelID, "auth_channel", authChannelID, "ansible_channel", ansibleChannelID)
 	return &DiscordBot{
 		session:          session,
+		token:            token,
 		channelID:        channelID,
 		authChannelID:    authChannelID,
 		ansibleChannelID: ansibleChannelID,

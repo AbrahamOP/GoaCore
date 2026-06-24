@@ -124,6 +124,28 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		// Rollback: delete the in-app DB row, revert to the env fallback live.
 		r.Post("/api/onboarding/proxmox/delete", h.HandleOnboardingDeleteProxmox)
 
+		// Onboarding — unified Connexions page for the registry-held services
+		// (Wazuh API, Wazuh Indexer, AI, Discord). Proxmox keeps its dedicated page
+		// (linked from here). Not in the OnboardingGate allowlist ⇒ reachable on a
+		// fresh instance. All four service quartets are wired.
+		r.Get("/onboarding/connexions", h.HandleOnboardingConnexions)
+		r.Post("/onboarding/wazuh-indexer", h.HandleOnboardingWazuhIndexer)
+		r.Post("/api/onboarding/wazuh-indexer/test", h.HandleOnboardingWazuhIndexerTest)
+		r.Post("/api/onboarding/wazuh-indexer/import-env", h.HandleOnboardingWazuhIndexerImportEnv)
+		r.Post("/api/onboarding/wazuh-indexer/delete", h.HandleOnboardingWazuhIndexerDelete)
+		r.Post("/onboarding/wazuh", h.HandleOnboardingWazuh)
+		r.Post("/api/onboarding/wazuh/test", h.HandleOnboardingWazuhTest)
+		r.Post("/api/onboarding/wazuh/import-env", h.HandleOnboardingWazuhImportEnv)
+		r.Post("/api/onboarding/wazuh/delete", h.HandleOnboardingWazuhDelete)
+		r.Post("/onboarding/ai", h.HandleOnboardingAI)
+		r.Post("/api/onboarding/ai/test", h.HandleOnboardingAITest)
+		r.Post("/api/onboarding/ai/import-env", h.HandleOnboardingAIImportEnv)
+		r.Post("/api/onboarding/ai/delete", h.HandleOnboardingAIDelete)
+		r.Post("/onboarding/discord", h.HandleOnboardingDiscord)
+		r.Post("/api/onboarding/discord/test", h.HandleOnboardingDiscordTest)
+		r.Post("/api/onboarding/discord/import-env", h.HandleOnboardingDiscordImportEnv)
+		r.Post("/api/onboarding/discord/delete", h.HandleOnboardingDiscordDelete)
+
 		// Proxmox — state-changing / sensitive
 		r.Post("/api/proxmox/guest/power", h.HandleProxmoxPowerAction)
 		r.Post("/api/proxmox/snapshots", h.HandleProxmoxSnapshotCreate)

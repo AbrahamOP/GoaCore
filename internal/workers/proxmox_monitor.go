@@ -19,7 +19,9 @@ import (
 // it idles tick after tick and self-activates the moment an admin onboards Proxmox
 // in-app (hot-reload), exactly like the cache worker. Credentials are read live via
 // store.ProxmoxSnapshot() on every tick (lock-free, always coherent).
-func StartProxmoxAuthMonitor(ctx context.Context, store *config.ConfigStore, proxmox *services.ProxmoxService, discord *services.DiscordBot) {
+// discord is a DiscordProvider (the registry) read LIVE at each tick — never a frozen
+// bot — so an in-app Discord hot-reload reaches the auth alerts on the next event.
+func StartProxmoxAuthMonitor(ctx context.Context, store *config.ConfigStore, proxmox *services.ProxmoxService, discord services.DiscordProvider) {
 	select {
 	case <-ctx.Done():
 		return
@@ -50,7 +52,8 @@ func StartProxmoxAuthMonitor(ctx context.Context, store *config.ConfigStore, pro
 				// emitting alerts for pre-existing log lines.
 				lastN = proxmoxSyslogGetLastN(pm, proxmox)
 			case tickCheck:
-				lastN = checkProxmoxAuthEvents(pm, proxmox, discord, lastN)
+				// Snapshot the live Discord bot for this tick (hot-reloadable).
+				lastN = checkProxmoxAuthEvents(pm, proxmox, discord.Discord(), lastN)
 			}
 		}
 	}

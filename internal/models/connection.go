@@ -38,3 +38,47 @@ type ProxmoxConnectionForm struct {
 	Storage     string
 	Bridge      string
 }
+
+// WazuhConnectionForm binds the onboarding POST body for the Wazuh Manager API.
+// Password is the plaintext API password as typed by the admin; it is encrypted
+// before persistence (the connections.secret_enc column) and must never be logged.
+// It maps to the 'wazuh' connection row (url=API URL, token_id=user, secret=pass).
+type WazuhConnectionForm struct {
+	URL      string
+	User     string
+	Password string
+}
+
+// WazuhIndexerConnectionForm binds the onboarding POST body for the Wazuh Indexer
+// (OpenSearch) API. Password is the plaintext Basic-auth password; it is encrypted
+// before persistence. It maps to the 'wazuh-indexer' connection row, deliberately
+// distinct from 'wazuh' (two endpoints, two creds, two independent live tests).
+type WazuhIndexerConnectionForm struct {
+	URL      string
+	User     string
+	Password string
+}
+
+// AIConnectionForm binds the onboarding POST body for the AI enrichment provider.
+// APIKey is the plaintext provider key (OpenAI) and is the encrypted secret; for
+// Ollama it is empty. Provider toggles which fields matter (URL for Ollama,
+// APIKey+OpenAIBaseURL for OpenAI). It maps to the 'ai' connection row
+// (url=AIURL, token_id=model, secret=api_key, extra={provider,openai_base}).
+type AIConnectionForm struct {
+	Provider      string
+	URL           string
+	APIKey        string
+	Model         string
+	OpenAIBaseURL string
+}
+
+// DiscordConnectionForm binds the onboarding POST body for the Discord bot.
+// Token is the plaintext bot token and is the encrypted secret; it must never be
+// logged or echoed. It maps to the 'discord' connection row (token_id=channel id,
+// secret=bot token, extra={auth_channel,ansible_channel}).
+type DiscordConnectionForm struct {
+	Token            string
+	ChannelID        string
+	AuthChannelID    string
+	AnsibleChannelID string
+}

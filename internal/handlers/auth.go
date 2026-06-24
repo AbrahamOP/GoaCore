@@ -179,7 +179,9 @@ func DeriveSSHEncKey(sessionSecret string) [32]byte {
 }
 
 func (h *Handler) notifyLoginFailure(ip, username, reason string, attempt int, blocked bool) {
-	if h.Discord == nil || !h.Discord.IsReady() {
+	// Read the live Discord bot from the registry at emit time (hot-reloadable, nil-safe).
+	discord := h.Registry.Discord()
+	if discord == nil || !discord.IsReady() {
 		return
 	}
 	title := "Échec de connexion"
@@ -188,5 +190,5 @@ func (h *Handler) notifyLoginFailure(ip, username, reason string, attempt int, b
 		title = "⛔ IP Bloquée"
 		msg += "\n\n> L'adresse IP a été bloquée pendant **15 minutes** suite à trop d'échecs."
 	}
-	h.Discord.SendAuthAlert(title, msg, blocked)
+	discord.SendAuthAlert(title, msg, blocked)
 }

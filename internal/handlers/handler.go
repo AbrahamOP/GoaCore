@@ -18,10 +18,6 @@ type Handler struct {
 	DB           *sql.DB
 	Templates    *template.Template
 	SessionStore *sessions.CookieStore
-	WazuhClient  *services.WazuhClient
-	WazuhIndexer *services.WazuhIndexerClient
-	AIClient     services.AIClient
-	Discord      *services.DiscordBot
 	Config       *config.Config
 	WazuhCache   *models.WazuhCache
 	ProxmoxCache *models.ProxmoxCache
@@ -41,4 +37,11 @@ type Handler struct {
 	// Connections persists per-service infrastructure credentials (Proxmox at
 	// Jalon 1) configured in-app, with the secret encrypted at rest.
 	Connections *services.ConnectionStore
+	// Registry holds the LIVE service clients (Wazuh API, Wazuh Indexer, AI, Discord)
+	// and hot-reloads them in place on in-app onboarding — the client-snapshot sibling
+	// of ConfigStore. Handlers and workers that read a hot-reloadable client MUST go
+	// through Registry.Wazuh()/Indexer()/AI()/Discord() per request/tick (lock-free).
+	// All four services are now fully migrated to the registry — there is no boot-time
+	// client field left on the Handler.
+	Registry *services.ServiceRegistry
 }

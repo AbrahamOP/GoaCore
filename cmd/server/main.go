@@ -175,7 +175,9 @@ func main() {
 		SameSite: http.SameSiteStrictMode,
 	}
 
-	// Discord
+	// Discord (env seed). The bot is published into the registry below; at shutdown we
+	// close the CURRENT registry bot (which may have been hot-reloaded), not this boot
+	// pointer — so the defer is registered after the registry is built (see below).
 	var discordBot *services.DiscordBot
 	if cfg.DiscordBotToken != "" && cfg.DiscordChannelID != "" {
 		bot, botErr := services.NewDiscordBot(cfg.DiscordBotToken, cfg.DiscordChannelID, cfg.DiscordAuthChannel, cfg.DiscordAnsibleChannel)
@@ -183,14 +185,40 @@ func main() {
 			slog.Error("Failed to init Discord Bot", "error", botErr)
 		} else {
 			discordBot = bot
-			defer discordBot.Close()
 		}
 	} else {
 		slog.Info("Discord Bot not configured (missing token or channel)")
 	}
 
-	// Wire Discord notifications into the backup service (nil-safe).
-	backupService.SetDiscord(discordBot)
+	// Service registry: the LIVE, hot-reloadable clients (Wazuh API, Wazuh Indexer,
+	// AI, Discord). Seed it from the env-built clients above (boot only, before any
+	// worker starts), freezing each service's env snapshot for rollback. The DB rows
+	// then override the seeds via reloadServicesFromDB, exactly like Proxmox.
+	registry := services.NewServiceRegistry(cfg.SkipTLSVerify)
+	registry.SeedWazuh(wazuhClient, cfg.WazuhAPIURL, cfg.WazuhUser, cfg.WazuhPassword)
+	registry.SeedIndexer(wazuhIndexer, cfg.WazuhIndexerURL, cfg.WazuhIndexerUser, cfg.WazuhIndexerPass)
+	registry.SeedAI(aiClient, cfg.AIProvider, cfg.AIURL, cfg.AIAPIKey, cfg.AIModel, cfg.OpenAIBaseURL)
+	registry.SeedDiscord(discordBot, cfg.DiscordBotToken, cfg.DiscordChannelID, cfg.DiscordAuthChannel, cfg.DiscordAnsibleChannel)
+
+	// Resolve each service's effective connection: a DB row (when present) overrides
+	// the env seed via the registry hot-reload writers. Tolerant by design (a
+	// missing/undecipherable row never aborts the boot). MUST run BEFORE the workers
+	// start, like reloadProxmoxFromDB.
+	reloadServicesFromDB(connStore, registry)
+
+	// Close the CURRENT registry Discord session at shutdown — never the boot pointer,
+	// which may have been replaced by a hot-reload (ApplyDiscord swaps + closes the old
+	// session itself; this only handles the live one at process exit).
+	defer func() {
+		if b := registry.Discord(); b != nil {
+			b.Close()
+		}
+	}()
+
+	// Wire Discord notifications into the backup service via the registry as a
+	// DiscordProvider (nil-safe). Every emit reads the LIVE bot through the provider, so
+	// a hot-reload swap is picked up without re-wiring.
+	backupService.SetDiscordProvider(registry)
 
 	// Purge any guest leaked in the disposable sandbox range [9500,9599] on the
 	// host (a crash mid-test can leave one behind). No legitimate guest ever lives
@@ -228,10 +256,8 @@ func main() {
 		DB:           db,
 		Templates:    tmpl,
 		SessionStore: store,
-		WazuhClient:  wazuhClient,
-		WazuhIndexer: wazuhIndexer,
-		AIClient:     aiClient,
-		Discord:      discordBot,
+		// All four registry-held services (Wazuh API / Indexer / AI / Discord) are read
+		// live via Registry — there is no boot-time client field on the Handler.
 		Config:       cfg,
 		WazuhCache:   wazuhCache,
 		ProxmoxCache: proxmoxCache,
@@ -244,6 +270,7 @@ func main() {
 		SSEBroker:    sseBroker,
 		ConfigStore:  configStore,
 		Connections:  connStore,
+		Registry:     registry,
 	}
 
 	// Background workers with context for graceful shutdown
@@ -262,24 +289,32 @@ func main() {
 		workers.StartCacheWorker(ctx, db, configStore, proxmoxService, proxmoxCache, sseBroker)
 	})
 	startWorker("wazuh", func(ctx context.Context) {
-		workers.StartWazuhWorker(ctx, wazuhClient, wazuhIndexer, wazuhCache, vulnCache)
+		// Reads the Wazuh API + Indexer clients live from the registry at the top of
+		// each tick, so an in-app onboarding hot-reload takes effect next tick.
+		workers.StartWazuhWorker(ctx, registry, wazuhCache, vulnCache)
 	})
 	startWorker("soar", func(ctx context.Context) {
-		workers.StartSoarWorker(ctx, db, wazuhClient, wazuhIndexer, aiClient, discordBot, soarConfigState)
+		// Reads ALL hot-reloadable clients (Wazuh API + Indexer + AI + Discord) live
+		// from the registry at the top of each tick (in-app onboarding hot-reload takes
+		// effect next tick).
+		workers.StartSoarWorker(ctx, db, registry, soarConfigState)
 	})
 	startWorker("proxmox-auth", func(ctx context.Context) {
-		workers.StartProxmoxAuthMonitor(ctx, configStore, proxmoxService, discordBot)
+		// registry is the DiscordProvider — the auth monitor reads the live bot per tick.
+		workers.StartProxmoxAuthMonitor(ctx, configStore, proxmoxService, registry)
 	})
 	startWorker("health", func(ctx context.Context) {
 		workers.StartHealthWorker(ctx, db)
 	})
 	startWorker("ansible", func(ctx context.Context) {
-		workers.StartAnsibleScheduler(ctx, db, sshService, discordBot)
+		// registry is the DiscordProvider — the scheduler reads the live bot per tick.
+		workers.StartAnsibleScheduler(ctx, db, sshService, registry)
 	})
 	startWorker("backup-test-scheduler", func(ctx context.Context) {
 		// Rotation enablement/hour are read live from the DB (backup_settings) by
-		// the worker; the GOABACKUP_TEST_* env vars no longer drive it.
-		workers.StartBackupTestScheduler(ctx, backupService, discordBot)
+		// the worker; the GOABACKUP_TEST_* env vars no longer drive it. Restore-test
+		// alerts are emitted by BackupService via its DiscordProvider — no Discord here.
+		workers.StartBackupTestScheduler(ctx, backupService)
 	})
 
 	// TLS cert
@@ -380,5 +415,60 @@ func logProxmoxSource(configStore *config.ConfigStore, source string) {
 		slog.Info("Proxmox configuration resolved", "source", source)
 	} else {
 		slog.Info("Proxmox configuration resolved", "source", "unconfigured")
+	}
+}
+
+// reloadServicesFromDB resolves each registry-held service's effective connection at
+// boot with the precedence DB(enabled row) > env > unconfigured, and publishes it
+// through the registry Apply* hot-reload writers (atomic swap). It is the
+// generalisation of reloadProxmoxFromDB and, like it, MUST run before the workers
+// start. It is intentionally tolerant per service: a missing row keeps the env seed,
+// an undecipherable secret logs + records an errored status and keeps the env seed,
+// never aborting the boot.
+//
+// All four services (Wazuh API, Indexer, AI, Discord) override the env seed immediately
+// when a usable DB row exists. For Discord, ApplyDiscord opens the new Gateway session
+// before swapping (and closes the env-seeded one); a failure here is logged and leaves
+// the env bot live, never aborting the boot.
+func reloadServicesFromDB(connStore *services.ConnectionStore, registry *services.ServiceRegistry) {
+	// Wazuh Indexer.
+	if conn, secret, err := connStore.GetWazuhIndexer(); err != nil {
+		slog.Warn("Wazuh Indexer connection in DB could not be loaded — keeping env", "error", err)
+		_ = connStore.SetStatus("wazuh-indexer", "error", "secret indéchiffrable (SESSION_SECRET modifié ?)")
+	} else if conn != nil && conn.Enabled {
+		registry.ApplyIndexer(conn.URL, conn.TokenID, secret)
+		slog.Info("Wazuh Indexer configuration resolved", "source", "DB")
+	}
+
+	// Wazuh API.
+	if conn, secret, err := connStore.GetWazuh(); err != nil {
+		slog.Warn("Wazuh API connection in DB could not be loaded — keeping env", "error", err)
+		_ = connStore.SetStatus("wazuh", "error", "secret indéchiffrable (SESSION_SECRET modifié ?)")
+	} else if conn != nil && conn.Enabled {
+		registry.ApplyWazuh(conn.URL, conn.TokenID, secret)
+		slog.Info("Wazuh API configuration resolved", "source", "DB")
+	}
+
+	// AI enrichment.
+	if conn, secret, err := connStore.GetAI(); err != nil {
+		slog.Warn("AI connection in DB could not be loaded — keeping env", "error", err)
+		_ = connStore.SetStatus("ai", "error", "secret indéchiffrable (SESSION_SECRET modifié ?)")
+	} else if conn != nil && conn.Enabled {
+		provider, openaiBase := services.AIExtra(conn)
+		registry.ApplyAI(provider, conn.URL, secret, conn.TokenID, openaiBase)
+		slog.Info("AI configuration resolved", "source", "DB", "provider", provider)
+	}
+
+	// Discord (ApplyDiscord is a stub at this sub-lot — see registry.go).
+	if conn, secret, err := connStore.GetDiscord(); err != nil {
+		slog.Warn("Discord connection in DB could not be loaded — keeping env", "error", err)
+		_ = connStore.SetStatus("discord", "error", "secret indéchiffrable (SESSION_SECRET modifié ?)")
+	} else if conn != nil && conn.Enabled {
+		authCh, ansibleCh := services.DiscordExtra(conn)
+		if aerr := registry.ApplyDiscord(secret, conn.TokenID, authCh, ansibleCh); aerr != nil {
+			slog.Warn("Discord hot-reload from DB failed — keeping env bot", "error", aerr)
+		} else {
+			slog.Info("Discord configuration resolved", "source", "DB")
+		}
 	}
 }
