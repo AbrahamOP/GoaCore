@@ -260,6 +260,13 @@ func Migrate(db *sql.DB) {
 		//     DEFAULT. The column stays NOT NULL: the application now REQUIRES an
 		//     explicit remote_user at creation, so no INSERT relies on the default.
 		//     Existing 'root' rows are LEFT UNTOUCHED on purpose (see the WARN below).
+		//   - ADD remote_user (idempotent): a PRE-jalon prod table can pre-date this
+		//     column (it only ever lived in CREATE TABLE, never as an ALTER), so the
+		//     scheduler hit "Unknown column 'remote_user'". Add it BEFORE dropping its
+		//     default; a Duplicate-column error (fresh install where CREATE already made
+		//     it) is ignored by the loop. Legacy rows get '' and are flagged at run time
+		//     (remote_user required) instead of crashing.
+		"ALTER TABLE ansible_schedules ADD COLUMN remote_user VARCHAR(50) NOT NULL DEFAULT ''",
 		"ALTER TABLE ansible_schedules ADD COLUMN become BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE ansible_schedules ALTER COLUMN remote_user DROP DEFAULT",
 	}
