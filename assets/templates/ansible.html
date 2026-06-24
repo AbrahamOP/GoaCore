@@ -325,8 +325,16 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Utilisateur SSH</label>
-                    <input id="sched-user" type="text" value="root" placeholder="root" class="themed w-full bg-transparent border border-outline rounded-xs px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary">
+                    <label class="block text-xs font-medium text-on-surface-variant mb-1">Utilisateur SSH <span class="text-error">*</span></label>
+                    <input id="sched-user" type="text" value="{{.DefaultRemoteUser}}" placeholder="ex. ansible, deploy, admin" required class="themed w-full bg-transparent border border-outline rounded-xs px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary">
+                    <p class="text-xs text-on-surface-variant mt-1 opacity-70">Le login root est désactivé sur le parc&nbsp;: choisissez un utilisateur non-root.</p>
+                </div>
+                <div>
+                    <label class="flex items-center gap-2 text-sm text-on-surface cursor-pointer">
+                        <input id="sched-become" type="checkbox" class="themed w-4 h-4 rounded border-outline text-primary focus:ring-2 focus:ring-primary">
+                        <span>Élévation de privilèges (<code class="text-xs">--become</code> / sudo)</span>
+                    </label>
+                    <p class="text-xs text-on-surface-variant mt-1 opacity-70">À cocher si le playbook a besoin des droits root via sudo.</p>
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-on-surface-variant mb-1">Fréquence</label>
@@ -825,6 +833,7 @@
         function closeScheduleModal() {
             document.getElementById('schedule-modal').classList.add('hidden');
             document.getElementById('sched-status').innerText = '';
+            document.getElementById('sched-become').checked = false;
         }
 
         function formatInterval(minutes) {
@@ -873,7 +882,7 @@
                         const rowOpacity = s.enabled ? '' : ' opacity-50';
                         return '<tr class="border-b border-outline-variant/50 hover:bg-surface-container-high' + rowOpacity + '">' +
                             '<td class="py-3 px-2 text-on-surface font-medium">' + s.playbook + '</td>' +
-                            '<td class="py-3 px-2 text-on-surface-variant">' + s.vm_name + ' (' + s.vmid + ')' + (s.remote_user ? ' <span class="text-xs opacity-70">@' + s.remote_user + '</span>' : '') + '</td>' +
+                            '<td class="py-3 px-2 text-on-surface-variant">' + s.vm_name + ' (' + s.vmid + ')' + (s.remote_user ? ' <span class="text-xs opacity-70">@' + s.remote_user + '</span>' : '') + (s.become ? ' <span class="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Élévation sudo activée">sudo</span>' : '') + '</td>' +
                             '<td class="py-3 px-2 text-on-surface-variant">' + formatInterval(s.interval_minutes) + '</td>' +
                             '<td class="py-3 px-2">' + statusBadge(s.last_status) + '</td>' +
                             '<td class="py-3 px-2 text-on-surface-variant">' + formatDate(s.last_run) + '</td>' +
@@ -905,9 +914,11 @@
             const vmid = document.getElementById('sched-vm').value;
             const keyId = document.getElementById('sched-key').value;
             const interval = document.getElementById('sched-interval').value;
+            const remoteUser = document.getElementById('sched-user').value.trim();
+            const become = document.getElementById('sched-become').checked;
 
-            if (!playbook || !vmid || !keyId) {
-                status.innerText = 'Veuillez remplir tous les champs.';
+            if (!playbook || !vmid || !keyId || !remoteUser) {
+                status.innerText = 'Veuillez remplir tous les champs (utilisateur SSH inclus).';
                 status.className = 'text-center text-xs mt-1 h-4 text-red-400';
                 return;
             }
@@ -916,7 +927,7 @@
                 const res = await fetch('/api/ansible/schedules', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({playbook, vmid: parseInt(vmid), key_id: parseInt(keyId), interval_minutes: parseInt(interval), remote_user: document.getElementById('sched-user').value})
+                    body: JSON.stringify({playbook, vmid: parseInt(vmid), key_id: parseInt(keyId), interval_minutes: parseInt(interval), remote_user: remoteUser, become})
                 });
                 if (res.ok) {
                     closeScheduleModal();

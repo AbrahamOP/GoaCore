@@ -14,6 +14,13 @@ import (
 // command/argument injection via the --user flag.
 var remoteUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 
+// ValidRemoteUser reports whether user is a safe, non-empty SSH login name. It is
+// the single source of truth reused by the handlers (reject at the HTTP boundary
+// with a 400) and by RunPlaybook (reject before shelling out to ansible-playbook).
+func ValidRemoteUser(user string) bool {
+	return remoteUserPattern.MatchString(user)
+}
+
 // ListPlaybooks scans the given directory and returns a map of categories to playbook files.
 func ListPlaybooks(dir string) (map[string][]string, error) {
 	entries, err := os.ReadDir(dir)
@@ -55,17 +62,23 @@ func ListPlaybooks(dir string) (map[string][]string, error) {
 
 // RunPlaybook executes an ansible-playbook command and returns a streaming reader.
 // The caller MUST call the returned cleanup function after consuming all output.
-func RunPlaybook(playbookPath string, targetIP string, privateKey string, remoteUser string) (io.ReadCloser, func(), error) {
+//
+// remoteUser is REQUIRED (no 'root' fallback): root SSH is disabled fleet-wide
+// (PermitRootLogin=no), so a run must always target an explicit, non-root user.
+// When become is true, --become is appended so privileged tasks escalate via sudo
+// instead of needing a root login.
+func RunPlaybook(playbookPath string, targetIP string, privateKey string, remoteUser string, become bool) (io.ReadCloser, func(), error) {
 	// Validate IP to prevent command injection via inventory parameter
 	if ip := net.ParseIP(targetIP); ip == nil {
 		return nil, nil, fmt.Errorf("invalid target IP address: %s", targetIP)
 	}
 
-	// Default to root for backward compatibility, then validate to prevent injection.
+	// remote_user is mandatory and validated to prevent injection. No silent 'root'
+	// fallback: an empty user is a caller bug (handlers/worker enforce it earlier).
 	if remoteUser == "" {
-		remoteUser = "root"
+		return nil, nil, fmt.Errorf("remote user is required")
 	}
-	if !remoteUserPattern.MatchString(remoteUser) {
+	if !ValidRemoteUser(remoteUser) {
 		return nil, nil, fmt.Errorf("invalid remote user: %s", remoteUser)
 	}
 
@@ -85,13 +98,18 @@ func RunPlaybook(playbookPath string, targetIP string, privateKey string, remote
 	}
 	tmpKey.Close()
 
-	cmd := exec.Command("ansible-playbook",
+	args := []string{
 		"-i", fmt.Sprintf("%s,", targetIP),
 		playbookPath,
 		"--private-key", tmpKeyName,
 		"--user", remoteUser,
 		"--ssh-common-args", "-o StrictHostKeyChecking=accept-new",
-	)
+	}
+	if become {
+		// Privilege escalation via sudo for privileged tasks run by a non-root user.
+		args = append(args, "--become")
+	}
+	cmd := exec.Command("ansible-playbook", args...)
 
 	pr, pw, err := os.Pipe()
 	if err != nil {

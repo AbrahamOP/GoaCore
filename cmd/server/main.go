@@ -37,18 +37,16 @@ func main() {
 	if cfg.SkipTLSVerify {
 		slog.Warn("SKIP_TLS_VERIFY=true — TLS certificate verification disabled")
 	}
-	// Refuse to boot on a weak/known SESSION_SECRET. This key also derives the
-	// AES-256-GCM key that encrypts in-app secrets (Proxmox token, SSH keys, …),
-	// so a copy-paste-without-edit deployment must never start with a publicly
-	// known value. Rejects: empty, the built-in config default, the .env.example
-	// placeholder, and anything shorter than 32 chars (≈ openssl rand -hex 16).
-	knownWeakSecrets := map[string]bool{
-		"":                                  true,
-		"super-secret-key-change-me":        true, // internal/config default
-		"change-me-to-a-long-random-secret": true, // .env.example placeholder
-	}
-	if knownWeakSecrets[cfg.SessionSecret] || len(cfg.SessionSecret) < 32 {
-		slog.Error("SESSION_SECRET is missing, a known placeholder, or too short — refusing to start. Generate one with: openssl rand -hex 32")
+	// Refuse to boot when a core credential is missing or unsafe. RequireForBoot
+	// covers ONLY the always-required set: DB_USER/DB_PASS/DB_NAME (the database is
+	// mandatory; empty creds would silently fall back to a guessable connection) and
+	// SESSION_SECRET (which also derives the AES-256-GCM key encrypting in-app secrets,
+	// so a copy-paste-without-edit deployment must never start with a publicly known or
+	// too-short value). Optional services (Proxmox/Wazuh/AI/Discord) are NOT required —
+	// they are configurable in-app, so a vierge instance still boots. The guard now
+	// lives in config so it travels with the config (defence in depth).
+	if err := cfg.RequireForBoot(); err != nil {
+		slog.Error("Refusing to start — invalid core configuration", "error", err)
 		os.Exit(1)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -170,13 +168,17 @@ func main() {
 	}
 
 	var aiClient services.AIClient
-	if cfg.AIURL != "" || cfg.AIAPIKey != "" || cfg.AIProvider == "ollama" {
+	// Only build an AI client when a provider is explicitly configured. With the
+	// AI_PROVIDER default now empty, a vierge instance no longer instantiates an
+	// Ollama client aimed at localhost:11434 that would fail every SOAR tick — AI
+	// enrichment stays cleanly disabled until configured (env or in-app onboarding).
+	if cfg.AIProvider != "" {
 		aiClient = services.NewAIClient(cfg.AIProvider, cfg.AIURL, cfg.AIAPIKey, cfg.AIModel, cfg.OpenAIBaseURL)
 		if aiClient != nil {
 			slog.Info("AI Client configured", "provider", cfg.AIProvider, "model", cfg.AIModel)
 		}
 	} else {
-		slog.Info("AI enrichment disabled (missing configuration)")
+		slog.Info("AI enrichment disabled (no AI_PROVIDER — configure via onboarding)")
 	}
 
 	// Session store
@@ -516,7 +518,7 @@ func reloadServicesFromDB(connStore *services.ConnectionStore, registry *service
 		slog.Info("AI configuration resolved", "source", "DB", "provider", provider)
 	}
 
-	// Discord (ApplyDiscord is a stub at this sub-lot — see registry.go).
+	// Discord (ApplyDiscord performs a full hot-reload of the bot session — see registry.go).
 	if conn, secret, err := connStore.GetDiscord(); err != nil {
 		slog.Warn("Discord connection in DB could not be loaded — keeping env", "error", err)
 		_ = connStore.SetStatus("discord", "error", "secret indéchiffrable (SESSION_SECRET modifié ?)")

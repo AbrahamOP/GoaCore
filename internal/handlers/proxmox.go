@@ -33,9 +33,9 @@ func (h *Handler) HandleProxmox(w http.ResponseWriter, r *http.Request) {
 				h.ProxmoxCache.Mutex.Unlock()
 			}
 		}
-	} else {
-		stats = mockProxmoxStats()
 	}
+	// Proxmox non configuré : l'OnboardingGate redirige déjà vers /onboarding/proxmox.
+	// Ici on rend simplement un état vide explicite (aucune VM factice).
 
 	if err := h.Templates.ExecuteTemplate(w, "proxmox.html", stats); err != nil {
 		slog.Error("Template execution error", "error", err)
@@ -55,8 +55,11 @@ func (h *Handler) HandleProxmoxAPI(w http.ResponseWriter, r *http.Request) {
 		} else {
 			stats = realStats
 		}
-	} else {
-		stats = mockProxmoxStats()
+	}
+	// Proxmox non configuré : état vide explicite (l'OnboardingGate gère le cas page).
+
+	if stats.VMs == nil {
+		stats.VMs = []models.VM{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -84,21 +87,21 @@ func (h *Handler) HandleProxmoxGuestDetail(w http.ResponseWriter, r *http.Reques
 	var detail models.GuestDetail
 	var err error
 
-	if pc.URL != "" && pc.TokenID != "" {
-		detail, err = h.Proxmox.GetGuestDetail(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Error fetching details: %v", err)})
-			return
-		}
-	} else {
-		detail = models.GuestDetail{
-			ID: 100, Name: "Mock Guest", Status: "running", Uptime: "1d 2h",
-			CPU: 15.5, Cores: 4, RAMUsed: "2.1 GB", RAMTotal: "4 GB", RAMPercent: 52,
-			DiskUsed: "10 GB", DiskTotal: "32 GB", DiskPercent: 31,
-			Note: "This is a mock note.", Type: guestType,
-		}
+	if pc.URL == "" || pc.TokenID == "" {
+		// Proxmox non configuré : l'OnboardingGate redirige déjà la page ; côté API
+		// on répond un état vide explicite plutôt qu'une VM factice.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Proxmox non configuré — terminez l'onboarding dans Connexions."})
+		return
+	}
+
+	detail, err = h.Proxmox.GetGuestDetail(pc.URL, pc.Node, pc.TokenID, pc.TokenSecret, pveType, guestID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Error fetching details: %v", err)})
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -133,7 +136,8 @@ func (h *Handler) HandleProxmoxPowerAction(w http.ResponseWriter, r *http.Reques
 	}
 
 	if pc.URL == "" || pc.TokenID == "" {
-		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: action simulated"})
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Proxmox non configuré — terminez l'onboarding dans Connexions."})
 		return
 	}
 
@@ -244,7 +248,8 @@ func (h *Handler) HandleProxmoxSnapshotCreate(w http.ResponseWriter, r *http.Req
 	}
 
 	if pc.URL == "" || pc.TokenID == "" {
-		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: snapshot created"})
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Proxmox non configuré — terminez l'onboarding dans Connexions."})
 		return
 	}
 
@@ -279,7 +284,8 @@ func (h *Handler) HandleProxmoxSnapshotDelete(w http.ResponseWriter, r *http.Req
 	}
 
 	if pc.URL == "" || pc.TokenID == "" {
-		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: snapshot deleted"})
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Proxmox non configuré — terminez l'onboarding dans Connexions."})
 		return
 	}
 
@@ -314,7 +320,8 @@ func (h *Handler) HandleProxmoxSnapshotRollback(w http.ResponseWriter, r *http.R
 	}
 
 	if pc.URL == "" || pc.TokenID == "" {
-		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: rollback simulated"})
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Proxmox non configuré — terminez l'onboarding dans Connexions."})
 		return
 	}
 
@@ -370,7 +377,8 @@ func (h *Handler) HandleProxmoxCreateGuest(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 
 	if pc.URL == "" || pc.TokenID == "" {
-		json.NewEncoder(w).Encode(map[string]string{"ok": "mock: creation simulated"})
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Proxmox non configuré — terminez l'onboarding dans Connexions."})
 		return
 	}
 
@@ -426,17 +434,4 @@ func (h *Handler) HandleProxmoxCreateGuest(w http.ResponseWriter, r *http.Reques
 	services.LogAudit(h.DB, 0, username, "ProxmoxCreate", fmt.Sprintf("Created %s #%d %s", body.Type, body.VMID, body.Name), r.RemoteAddr)
 
 	json.NewEncoder(w).Encode(map[string]string{"ok": "creation started"})
-}
-
-func mockProxmoxStats() models.ProxmoxStats {
-	return models.ProxmoxStats{
-		CPU:      12,
-		RAM:      45,
-		RAMUsed:  14.2,
-		RAMTotal: 32.0,
-		Storage:  68,
-		VMs: []models.VM{
-			{ID: 0, Name: "Mock Data (Configurez ENV)", Status: "running", Uptime: "-", IP: "127.0.0.1"},
-		},
-	}
 }

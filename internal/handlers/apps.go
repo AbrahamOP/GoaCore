@@ -9,7 +9,10 @@ import (
 // HandleAddApp handles the add application form.
 func (h *Handler) HandleAddApp(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		h.Templates.ExecuteTemplate(w, "add_app.html", nil)
+		if err := h.Templates.ExecuteTemplate(w, "add_app.html", nil); err != nil {
+			slog.Error("Template error (add_app.html)", "error", err)
+			http.Error(w, "Template error", http.StatusInternalServerError)
+		}
 		return
 	}
 

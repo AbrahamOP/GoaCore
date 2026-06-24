@@ -71,7 +71,10 @@ func (h *Handler) HandleSSHManager(w http.ResponseWriter, r *http.Request) {
 		VMs:  vms,
 	}
 
-	h.Templates.ExecuteTemplate(w, "ssh_keys.html", data)
+	if err := h.Templates.ExecuteTemplate(w, "ssh_keys.html", data); err != nil {
+		slog.Error("Template error (ssh_keys.html)", "error", err)
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
 }
 
 // HandleSSHDeploy deploys a public key to a Proxmox VM via the API.

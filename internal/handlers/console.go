@@ -16,10 +16,21 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
+	// CheckOrigin gates the WS handshake against cross-site WebSocket hijacking.
+	// The only legitimate caller is the in-app terminal page (console.html), which
+	// connects to window.location.host — so a real browser ALWAYS sends an Origin
+	// header equal to the request host. We therefore accept only a same-origin
+	// Origin and reject everything else.
+	//
+	// An empty Origin is rejected on purpose: per the WebSocket spec a browser
+	// always sends Origin on the handshake, so a missing one means a non-browser
+	// client (curl/script) for which these root-SSH terminals have no legitimate
+	// use. This does not break the web terminal (which is same-origin), and it
+	// closes the prior hole where a forged/absent Origin was waved through.
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return true
+			return false
 		}
 		u, err := url.Parse(origin)
 		if err != nil {
@@ -53,7 +64,10 @@ func (h *Handler) HandleConsolePage(w http.ResponseWriter, r *http.Request) {
 		VMs:  vms,
 	}
 
-	h.Templates.ExecuteTemplate(w, "console.html", data)
+	if err := h.Templates.ExecuteTemplate(w, "console.html", data); err != nil {
+		slog.Error("Template error (console.html)", "error", err)
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
 }
 
 // HandleSSHWebSocket upgrades the HTTP connection to a WebSocket and starts an SSH session.

@@ -28,7 +28,10 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		h.Templates.ExecuteTemplate(w, "login.html", nil)
+		if err := h.Templates.ExecuteTemplate(w, "login.html", nil); err != nil {
+			slog.Error("Template error (login.html)", "error", err)
+			http.Error(w, "Template error", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -77,7 +80,10 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 				"MFARequired": true,
 				"Username":    username,
 			}
-			h.Templates.ExecuteTemplate(w, "login.html", data)
+			if err := h.Templates.ExecuteTemplate(w, "login.html", data); err != nil {
+				slog.Error("Template error (login.html)", "error", err)
+				http.Error(w, "Template error", http.StatusInternalServerError)
+			}
 			return
 		}
 		// Decrypt MFA secret (supports both encrypted and legacy plaintext)
@@ -133,7 +139,10 @@ func (h *Handler) HandleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		h.Templates.ExecuteTemplate(w, "setup.html", nil)
+		if err := h.Templates.ExecuteTemplate(w, "setup.html", nil); err != nil {
+			slog.Error("Template error (setup.html)", "error", err)
+			http.Error(w, "Template error", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -143,15 +152,15 @@ func (h *Handler) HandleSetup(w http.ResponseWriter, r *http.Request) {
 		confirm := r.FormValue("confirm_password")
 
 		if username == "" || password == "" {
-			h.Templates.ExecuteTemplate(w, "setup.html", map[string]interface{}{"Error": "Tous les champs sont requis"})
+			h.renderError(w, "setup.html", "Tous les champs sont requis")
 			return
 		}
 		if len(password) < 8 {
-			h.Templates.ExecuteTemplate(w, "setup.html", map[string]interface{}{"Error": "Le mot de passe doit contenir au moins 8 caractères"})
+			h.renderError(w, "setup.html", "Le mot de passe doit contenir au moins 8 caractères")
 			return
 		}
 		if password != confirm {
-			h.Templates.ExecuteTemplate(w, "setup.html", map[string]interface{}{"Error": "Les mots de passe ne correspondent pas"})
+			h.renderError(w, "setup.html", "Les mots de passe ne correspondent pas")
 			return
 		}
 
@@ -164,7 +173,7 @@ func (h *Handler) HandleSetup(w http.ResponseWriter, r *http.Request) {
 		_, err = h.DB.Exec("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", username, string(hashedPassword), "Admin")
 		if err != nil {
 			slog.Error("Error creating admin user", "error", err)
-			h.Templates.ExecuteTemplate(w, "setup.html", map[string]interface{}{"Error": "Erreur lors de la création du compte"})
+			h.renderError(w, "setup.html", "Erreur lors de la création du compte")
 			return
 		}
 

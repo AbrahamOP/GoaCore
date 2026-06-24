@@ -103,11 +103,12 @@ jobs:
 
       # Build the image on the shared Docker daemon BEFORE triggering Portainer.
       # The Portainer stack uses `build: .` but its webhook runs `up -d` WITHOUT
-      # --build, so it would otherwise keep serving the stale image. Pre-building
-      # `goacloud-app` updates the image so the subsequent `up -d` recreates the
-      # container with the new code. Image name = <project>-<service> = goacloud-app.
+      # --build, so it would otherwise keep serving the stale image. The compose
+      # service pins `image: goacloud:latest`, so the pre-built image MUST carry
+      # that exact tag — otherwise `up -d` resolves `goacloud:latest`, finds the
+      # old one, and never recreates the container with the new code.
       - name: Build PROD image
-        run: docker build -t goacloud-app:latest .
+        run: docker build -t goacloud:latest .
 
       - name: Trigger Portainer (PROD)
         run: |

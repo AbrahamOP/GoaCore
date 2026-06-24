@@ -52,7 +52,7 @@ func (h *Handler) HandleOnboardingProxmoxTest(w http.ResponseWriter, r *http.Req
 	if err := config.ValidateURL(strings.TrimSpace(req.URL)); err != nil {
 		writeJSON(w, http.StatusOK, proxmoxTestResponse{
 			Kind:  services.TestKindAPI,
-			Error: "URL invalide : attendez-vous à un schéma + hôte (ex. https://192.168.40.20:8006).",
+			Error: "URL invalide : attendez-vous à un schéma + hôte (ex. https://192.0.2.10:8006).",
 		})
 		return
 	}
@@ -184,7 +184,7 @@ func (h *Handler) handleOnboardingProxmoxSave(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := config.ValidateURL(form.URL); err != nil {
-		h.renderOnboardingProxmox(w, r, "URL Proxmox invalide (schéma + hôte requis, ex. https://192.168.40.20:8006).", "")
+		h.renderOnboardingProxmox(w, r, "URL Proxmox invalide (schéma + hôte requis, ex. https://192.0.2.10:8006).", "")
 		return
 	}
 	if form.TokenID == "" || form.TokenSecret == "" {

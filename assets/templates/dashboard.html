@@ -54,6 +54,34 @@
         {{template "bubbles"}}
 
         <div class="px-8 py-10 relative z-10">
+            <!-- Non-blocking onboarding banner: lists OPTIONAL services not yet
+                 configured (Wazuh / IA / Discord). Proxmox has its own hard gate.
+                 Dismissable for the session (sessionStorage), never blocks the page. -->
+            {{if .OnboardingHints}}
+            <div id="onboarding-banner" role="status"
+                class="mb-6 rounded-xl border border-outline-variant bg-surface-container px-5 py-4 flex items-start justify-between gap-4"
+                style="border-left:3px solid var(--md-color-primary);">
+                <div class="flex items-start gap-3">
+                    <svg class="w-5 h-5 text-primary mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                        <p class="text-sm text-on-surface font-medium">Services optionnels non configurés</p>
+                        <p class="text-sm text-on-surface-variant mt-0.5">
+                            {{range $i, $h := .OnboardingHints}}{{if $i}}, {{end}}<span class="text-on-surface">{{$h.Label}}</span>{{end}}
+                            — <a href="/onboarding/connexions" class="text-primary hover:underline font-medium">Configurer dans Connexions</a>
+                        </p>
+                    </div>
+                </div>
+                <button type="button" id="onboarding-banner-close" title="Masquer"
+                    class="text-on-surface-variant hover:text-on-surface transition-colors flex-shrink-0 p-1 -m-1 rounded-full hover:bg-surface-container-high">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            {{end}}
+
             <!-- Header -->
             <div class="flex flex-wrap items-start justify-between gap-4 mb-10">
                 <div>
@@ -268,7 +296,7 @@
                     <label for="url"
                         class="block text-xs font-semibold text-on-surface-variant uppercase tracking-widest pl-1">URL
                         Externe</label>
-                    <input type="url" id="url" name="url" required placeholder="http://192.168.1.15:32400"
+                    <input type="url" id="url" name="url" required placeholder="http://192.0.2.50:32400"
                         class="w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary transition placeholder-on-surface-variant text-cyan-400">
                 </div>
 
@@ -372,7 +400,7 @@
                     <label for="edit-url"
                         class="block text-xs font-semibold text-on-surface-variant uppercase tracking-widest pl-1">URL
                         Externe</label>
-                    <input type="url" id="edit-url" required placeholder="http://192.168.1.15:32400"
+                    <input type="url" id="edit-url" required placeholder="http://192.0.2.50:32400"
                         class="w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary transition placeholder-on-surface-variant text-cyan-400">
                 </div>
 
@@ -542,6 +570,23 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            // Non-blocking onboarding banner: dismissable for the session.
+            (function () {
+                const banner = document.getElementById('onboarding-banner');
+                const closeBtn = document.getElementById('onboarding-banner-close');
+                if (!banner || !closeBtn) return;
+                try {
+                    if (sessionStorage.getItem('onboardingBannerDismissed') === '1') {
+                        banner.classList.add('hidden');
+                        return;
+                    }
+                } catch (_) {}
+                closeBtn.addEventListener('click', () => {
+                    banner.classList.add('hidden');
+                    try { sessionStorage.setItem('onboardingBannerDismissed', '1'); } catch (_) {}
+                });
+            })();
+
             // Dynamic Greeting
             const hour = new Date().getHours();
             const greeting = document.getElementById('greeting');

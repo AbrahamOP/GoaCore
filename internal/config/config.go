@@ -69,6 +69,12 @@ type Config struct {
 	DiscordAuthChannel    string
 	DiscordAnsibleChannel string
 
+	// AnsibleDefaultRemoteUser is an OPTIONAL suggested SSH user pre-filled in the
+	// schedule-creation form (env ANSIBLE_DEFAULT_REMOTE_USER). Default empty: the
+	// admin MUST pick a remote_user explicitly — there is deliberately NO 'root'
+	// fallback (root SSH is disabled fleet-wide, PermitRootLogin=no).
+	AnsibleDefaultRemoteUser string
+
 	// GoaBackup restore-test channel (read-only SSH helper on the Proxmox host)
 	GoabackupSSHHost    string
 	GoabackupSSHUser    string
@@ -89,10 +95,14 @@ type Config struct {
 // Load reads configuration from environment variables with defaults.
 func Load() *Config {
 	cfg := &Config{
-		// DB defaults are dev-only conveniences; production deployments inject
-		// DB_USER/DB_PASS via the compose/env file (see docker-compose-dev.yml).
-		DBUser:             getEnv("DB_USER", "root"),
-		DBPass:             getEnv("DB_PASS", "root"),
+		// No DB credential defaults: DB_USER/DB_PASS MUST be injected by the
+		// compose/env file (see docker-compose.yml — the host DB_PASSWORD maps to the
+		// container DB_PASS). An empty user/pass is rejected fail-fast by
+		// RequireForBoot() below, so the app never silently connects as a guessable
+		// root/root. DB_HOST keeps a sane localhost default; DB_NAME keeps "goacloud"
+		// (the existing production schema name — changing it would break the live DB).
+		DBUser:             getEnv("DB_USER", ""),
+		DBPass:             getEnv("DB_PASS", ""),
 		DBHost:             getEnv("DB_HOST", "127.0.0.1:3306"),
 		DBName:             getEnv("DB_NAME", "goacloud"),
 		ProxmoxURL:         getEnv("PROXMOX_URL", ""),
@@ -108,15 +118,19 @@ func Load() *Config {
 		SandboxBridge:        getEnv("GOABACKUP_SANDBOX_BRIDGE", ""),
 		DefaultBackupStorage: getEnv("GOABACKUP_DEFAULT_STORAGE", "local"),
 		// Ceiling bounded <=95 (a 95%+ thin pool is already critical); default 85.
-		DiskCeilingPct:        float64(getEnvIntBounded("GOABACKUP_DISK_CEILING_PCT", 85, 1, 95)),
-		MinLocalAvailGiB:      getEnvIntBounded("GOABACKUP_MIN_LOCAL_AVAIL_GIB", 5, 0, 1024),
-		WazuhAPIURL:           getEnv("WAZUH_API_URL", ""),
-		WazuhUser:             getEnv("WAZUH_USER", ""),
-		WazuhPassword:         getEnv("WAZUH_PASSWORD", ""),
-		WazuhIndexerURL:       getEnv("WAZUH_INDEXER_URL", ""),
-		WazuhIndexerUser:      getEnv("WAZUH_INDEXER_USER", ""),
-		WazuhIndexerPass:      getEnv("WAZUH_INDEXER_PASSWORD", ""),
-		AIProvider:            getEnv("AI_PROVIDER", "ollama"),
+		DiskCeilingPct:   float64(getEnvIntBounded("GOABACKUP_DISK_CEILING_PCT", 85, 1, 95)),
+		MinLocalAvailGiB: getEnvIntBounded("GOABACKUP_MIN_LOCAL_AVAIL_GIB", 5, 0, 1024),
+		WazuhAPIURL:      getEnv("WAZUH_API_URL", ""),
+		WazuhUser:        getEnv("WAZUH_USER", ""),
+		WazuhPassword:    getEnv("WAZUH_PASSWORD", ""),
+		WazuhIndexerURL:  getEnv("WAZUH_INDEXER_URL", ""),
+		WazuhIndexerUser: getEnv("WAZUH_INDEXER_USER", ""),
+		WazuhIndexerPass: getEnv("WAZUH_INDEXER_PASSWORD", ""),
+		// Default empty (not "ollama"): a vierge instance with no AI_PROVIDER must NOT
+		// instantiate an Ollama client pointed at localhost:11434 that fails every SOAR
+		// tick. AI enrichment stays cleanly "disabled" until configured (env or in-app).
+		// Production is unaffected — it sets AI_PROVIDER explicitly in its env.
+		AIProvider:            getEnv("AI_PROVIDER", ""),
 		AIURL:                 getEnv("AI_URL", ""),
 		AIAPIKey:              getEnv("AI_API_KEY", ""),
 		AIModel:               getEnv("AI_MODEL", ""),
@@ -125,9 +139,11 @@ func Load() *Config {
 		DiscordChannelID:      getEnv("DISCORD_CHANNEL_ID", ""),
 		DiscordAuthChannel:    getEnv("DISCORD_AUTH_CHANNEL_ID", ""),
 		DiscordAnsibleChannel: getEnv("DISCORD_ANSIBLE_CHANNEL_ID", ""),
-		GoabackupSSHHost:      getEnv("GOABACKUP_SSH_HOST", ""),
-		GoabackupSSHUser:      getEnv("GOABACKUP_SSH_USER", "goabackup"),
-		GoabackupSSHKeyFile:   getEnv("GOABACKUP_SSH_KEY_FILE", ""),
+		// Empty by default: no 'root' suggestion. The admin must choose a user.
+		AnsibleDefaultRemoteUser: getEnv("ANSIBLE_DEFAULT_REMOTE_USER", ""),
+		GoabackupSSHHost:         getEnv("GOABACKUP_SSH_HOST", ""),
+		GoabackupSSHUser:         getEnv("GOABACKUP_SSH_USER", "goabackup"),
+		GoabackupSSHKeyFile:      getEnv("GOABACKUP_SSH_KEY_FILE", ""),
 
 		BackupTestRotationEnabled: getEnvBool("GOABACKUP_TEST_ROTATION_ENABLED", false),
 		BackupTestHour:            getEnvIntBounded("GOABACKUP_TEST_HOUR", 4, 0, 23),
@@ -172,6 +188,48 @@ func (c *Config) Validate() error {
 		if err := ValidateURL(raw); err != nil {
 			return fmt.Errorf("%s is not a valid absolute URL: %q", name, raw)
 		}
+	}
+	return nil
+}
+
+// boot-time placeholders for SESSION_SECRET that must never reach production. The
+// set is shared with the boot guard in main.go (kept in sync) and the unit test.
+var weakSessionSecrets = map[string]bool{
+	"":                                  true,
+	"super-secret-key-change-me":        true, // internal/config default (pre-hardening)
+	"change-me-to-a-long-random-secret": true, // .env.example placeholder
+}
+
+// RequireForBoot enforces the small set of credentials WITHOUT which the app cannot
+// safely run, so the rejection travels with the config (defence in depth) instead of
+// living only in main.go. It deliberately covers ONLY the always-required core:
+//
+//   - DB_USER / DB_PASS / DB_NAME — the database is mandatory; an empty user/pass
+//     would otherwise silently fall back to a guessable connection. (DB_NAME has a
+//     historical default of "goacloud", so it is only ever empty if explicitly cleared.)
+//   - SESSION_SECRET — also derives the AES-256-GCM key for in-app secrets; a missing,
+//     known-placeholder, or <32-char value is refused.
+//
+// It does NOT require any OPTIONAL service (Proxmox, Wazuh, AI, Discord): those are
+// configurable in-app and a vierge instance must boot without them. Production is
+// unaffected — it injects DB_USER/DB_PASS/DB_NAME and a strong SESSION_SECRET via its
+// env, so every check below passes.
+func (c *Config) RequireForBoot() error {
+	var missing []string
+	if c.DBUser == "" {
+		missing = append(missing, "DB_USER")
+	}
+	if c.DBPass == "" {
+		missing = append(missing, "DB_PASS (host DB_PASSWORD)")
+	}
+	if c.DBName == "" {
+		missing = append(missing, "DB_NAME")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required configuration: %v — set them in your .env / compose env file", missing)
+	}
+	if weakSessionSecrets[c.SessionSecret] || len(c.SessionSecret) < 32 {
+		return fmt.Errorf("SESSION_SECRET is missing, a known placeholder, or shorter than 32 chars — generate one with: openssl rand -hex 32")
 	}
 	return nil
 }

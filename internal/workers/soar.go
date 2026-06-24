@@ -3,6 +3,7 @@ package workers
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -28,7 +29,9 @@ func StartSoarWorker(
 ) {
 	slog.Info("Starting SOAR Worker...")
 
-	loadSoarConfig(db, soarConfig)
+	// Initial load; errors are logged inside loadSoarConfig (fail-open defaults on
+	// a never-loaded DB error), so the worker can still start and alert.
+	_ = loadSoarConfig(db, soarConfig)
 
 	agentStatus := &sync.Map{}
 	alertDedup := &sync.Map{}
@@ -60,7 +63,9 @@ func StartSoarWorker(
 			slog.Info("SOAR Worker stopped")
 			return
 		case <-ticker.C:
-			loadSoarConfig(db, soarConfig)
+			// A refresh error keeps the last-known-good config (logged inside);
+			// proceed with the current snapshot rather than skipping the tick.
+			_ = loadSoarConfig(db, soarConfig)
 			// Snapshot ALL hot-reloadable clients (incl. Discord) for this tick.
 			checkSoarEvents(registry.Wazuh(), registry.Indexer(), registry.AI(), registry.Discord(), soarConfig, agentStatus, alertDedup, &lastAlertPoll)
 		}
@@ -70,6 +75,20 @@ func StartSoarWorker(
 // maxAlertLookback caps the indexer query window so a long outage cannot trigger
 // an unbounded (and expensive) range query when the worker recovers.
 const maxAlertLookback = 30 * time.Minute
+
+// maxConcurrentEnrichments bounds how many AI (Ollama) enrichments run at once.
+// A single tick can fan out one `go sendEnrichedAlert(...)` per state change and
+// per indexer alert; without a cap a burst would launch N goroutines that each
+// hold a 120s Ollama call open in parallel, saturating the model and producing
+// timeouts in cascade (the known "AI enrichment concurrency" failure). Keeping
+// this at 1 serializes the heavy calls (the cheap part — the blocked goroutine —
+// just waits on the channel, so no alert is dropped). Bump to 2 only if the
+// backing model is provisioned for it.
+const maxConcurrentEnrichments = 1
+
+// aiEnrichSem is a counting semaphore (buffered chan) that gates concurrent AI
+// enrichments across every async sendEnrichedAlert goroutine.
+var aiEnrichSem = make(chan struct{}, maxConcurrentEnrichments)
 
 // StartAlertDedupCleaner periodically removes old alert dedup entries to prevent memory leaks.
 func StartAlertDedupCleaner(ctx context.Context, alertDedup *sync.Map) {
@@ -91,21 +110,57 @@ func StartAlertDedupCleaner(ctx context.Context, alertDedup *sync.Map) {
 	}
 }
 
-func loadSoarConfig(db *sql.DB, state *models.SoarConfigState) {
+// defaultSoarConfig is the fail-open default (every alert category enabled) used
+// only when no config row exists yet — never to clobber a previously loaded one.
+func defaultSoarConfig() models.SoarConfig {
+	return models.SoarConfig{AlertStatus: true, AlertSSH: true, AlertSudo: true, AlertFIM: true, AlertPackages: true}
+}
+
+// loadSoarConfig refreshes state.Config from the DB. It returns the DB error (if
+// any) so the caller can surface a real failure instead of it being swallowed.
+//
+// Failure handling avoids the silent "reset to all-enabled" bug:
+//   - sql.ErrNoRows (no config saved yet): apply the fail-open defaults. This is
+//     a legitimate first-boot state, not an error.
+//   - any other DB error AFTER a good load: keep the last-known-good config so a
+//     transient outage cannot quietly override an admin's saved toggles (e.g. a
+//     deliberately disabled SSH alert flipping back on).
+//   - any other DB error BEFORE the first good load: fall back to the fail-open
+//     defaults (we have no better config and muting all alerting is worse), but
+//     still report the error to the caller.
+func loadSoarConfig(db *sql.DB, state *models.SoarConfigState) error {
 	state.Mutex.Lock()
 	defer state.Mutex.Unlock()
 
+	var cfg models.SoarConfig
 	row := db.QueryRow("SELECT alert_status, alert_ssh, alert_sudo, alert_fim, alert_packages FROM soar_config WHERE id = 1")
 	err := row.Scan(
-		&state.Config.AlertStatus,
-		&state.Config.AlertSSH,
-		&state.Config.AlertSudo,
-		&state.Config.AlertFIM,
-		&state.Config.AlertPackages,
+		&cfg.AlertStatus,
+		&cfg.AlertSSH,
+		&cfg.AlertSudo,
+		&cfg.AlertFIM,
+		&cfg.AlertPackages,
 	)
-	if err != nil {
-		slog.Error("Error loading SOAR config from DB, using defaults", "error", err)
-		state.Config = models.SoarConfig{AlertStatus: true, AlertSSH: true, AlertSudo: true, AlertFIM: true, AlertPackages: true}
+	switch {
+	case err == nil:
+		state.Config = cfg
+		state.Loaded = true
+		return nil
+	case errors.Is(err, sql.ErrNoRows):
+		// No config persisted yet: legitimate first boot, use defaults.
+		state.Config = defaultSoarConfig()
+		state.Loaded = true
+		return nil
+	default:
+		if state.Loaded {
+			// Keep the last-known-good config; do not reset an admin's choices.
+			slog.Error("Error refreshing SOAR config from DB, keeping last-known-good config", "error", err)
+		} else {
+			// Never loaded successfully: fail open so security alerting is not muted.
+			slog.Error("Error loading SOAR config from DB, using fail-open defaults", "error", err)
+			state.Config = defaultSoarConfig()
+		}
+		return err
 	}
 }
 
@@ -253,9 +308,32 @@ func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClie
 	msg := alertCtx.Description
 
 	if aiClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		analysis, err := aiClient.EnrichAlert(ctx, alertCtx)
-		cancel()
+		// Gate the heavy Ollama call through the shared semaphore so a burst of
+		// alerts never opens more than maxConcurrentEnrichments 120s calls at once.
+		// Acquire blocks (rather than dropping) so every alert is still enriched in
+		// turn; the waiting goroutine is cheap (it just parks on the channel).
+		//
+		// The acquire/release + EnrichAlert run inside a closure so the slot is freed
+		// via defer even on panic. Without this, a single panic with
+		// maxConcurrentEnrichments=1 would leak the only slot forever, deadlocking
+		// every future enrichment on `aiEnrichSem <- struct{}{}` (the known "SOAR
+		// s'arrete definitivement a la 1ere erreur" class of failure). recover() also
+		// keeps a panic from tearing down the whole GoaCore process, since
+		// sendEnrichedAlert runs in a detached goroutine.
+		var analysis string
+		var err error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("panic during AI enrichment: %v", r)
+				}
+			}()
+			aiEnrichSem <- struct{}{}
+			defer func() { <-aiEnrichSem }()
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+			analysis, err = aiClient.EnrichAlert(ctx, alertCtx)
+		}()
 		if err == nil {
 			msg += fmt.Sprintf("\n\n🤖 **Analyse AI:**\n%s", analysis)
 		} else {

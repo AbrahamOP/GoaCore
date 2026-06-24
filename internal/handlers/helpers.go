@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gorilla/sessions"
@@ -8,9 +9,11 @@ import (
 
 // renderError renders a template with an error message.
 func (h *Handler) renderError(w http.ResponseWriter, templateName string, errorMsg string) {
-	h.Templates.ExecuteTemplate(w, templateName, map[string]interface{}{
+	if err := h.Templates.ExecuteTemplate(w, templateName, map[string]interface{}{
 		"Error": errorMsg,
-	})
+	}); err != nil {
+		slog.Error("Template error", "template", templateName, "error", err)
+	}
 }
 
 // getSessionUser extracts the username from the session.

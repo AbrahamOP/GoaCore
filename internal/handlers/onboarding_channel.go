@@ -373,8 +373,8 @@ func (h *Handler) resolveChannelHost() string {
 	return h.Config.GoabackupSSHHost
 }
 
-// hostFromURL extracts the bare host from a Proxmox API URL ("https://192.168.40.20:8006"
-// → "192.168.40.20"). The API port (8006) is NOT the SSH port, so we drop it; the channel
+// hostFromURL extracts the bare host from a Proxmox API URL ("https://192.0.2.10:8006"
+// → "192.0.2.10"). The API port (8006) is NOT the SSH port, so we drop it; the channel
 // appends the SSH default :22. Returns "" when the URL has no host.
 func hostFromURL(raw string) string {
 	s := raw
