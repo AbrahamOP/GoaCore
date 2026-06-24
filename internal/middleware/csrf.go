@@ -51,7 +51,12 @@ func CSRFProtection(store *sessions.CookieStore, cookieSecure bool) func(http.Ha
 					return
 				}
 
-				// Get the submitted token from header or form field
+				// Get the submitted token from the header or the form field ONLY.
+				// We deliberately do NOT accept the token from the query string: a
+				// CSRF token placed in a URL leaks into access logs, the Referer
+				// header and browser history, eroding its secrecy. Every legitimate
+				// client (assets/static/csrf.js) sends it via the X-CSRF-Token header
+				// (fetch/XHR) or the hidden csrf_token form field (classic <form>).
 				submitted := r.Header.Get(csrfHeaderName)
 				if submitted == "" {
 					// Try form field (works for both multipart and urlencoded)
@@ -59,10 +64,6 @@ func CSRFProtection(store *sessions.CookieStore, cookieSecure bool) func(http.Ha
 					if strings.HasPrefix(ct, "application/x-www-form-urlencoded") || strings.HasPrefix(ct, "multipart/form-data") {
 						submitted = r.FormValue(csrfFormField)
 					}
-				}
-				if submitted == "" {
-					// Also check form value for JSON endpoints that may send it
-					submitted = r.URL.Query().Get(csrfFormField)
 				}
 
 				if submitted == "" || subtle.ConstantTimeCompare([]byte(submitted), []byte(token)) != 1 {
