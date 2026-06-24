@@ -85,6 +85,25 @@ type AIConnectionForm struct {
 	OpenAIBaseURL string
 }
 
+// GoabackupChannelForm binds the persisted state of the read-only Proxmox helper
+// channel (service='goabackup-channel'). Unlike the other services, the secret here
+// is NOT typed by an admin: PrivateKeyPEM is the OpenSSH-format ed25519 private key
+// GoaCloud GENERATES in-app (GenerateEd25519Key) and encrypts before persistence — it
+// must NEVER be logged, echoed, or returned by any GET/test. Host is "ip:port" (the
+// channel target), User is the SSH login ("goabackup"), and PublicKey/Fingerprint/
+// KeyType are NON-secret values mirrored into extra_json for the install script + UI
+// (the private key never lands in extra_json). It maps to the 'goabackup-channel'
+// connection row (url=host, token_id=user, secret=private PEM,
+// extra={pubkey,fingerprint,keytype}).
+type GoabackupChannelForm struct {
+	Host          string
+	User          string
+	PrivateKeyPEM string
+	PublicKey     string
+	Fingerprint   string
+	KeyType       string
+}
+
 // DiscordConnectionForm binds the onboarding POST body for the Discord bot.
 // Token is the plaintext bot token and is the encrypted secret; it must never be
 // logged or echoed. It maps to the 'discord' connection row (token_id=channel id,

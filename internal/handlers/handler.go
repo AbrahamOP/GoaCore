@@ -44,4 +44,10 @@ type Handler struct {
 	// All four services are now fully migrated to the registry — there is no boot-time
 	// client field left on the Handler.
 	Registry *services.ServiceRegistry
+	// ChannelRegistry holds the LIVE read-only Proxmox helper channel (goabackup) and
+	// hot-reloads it in place when an admin provisions or rotates the in-app ed25519 key
+	// — the channel sibling of Registry. The onboarding-canal handlers read it via
+	// ChannelRegistry.Channel() (lock-free) for the live "Vérifier l'installation"
+	// disk-free probe, and write through ApplyChannel/RollbackToEnv on provision/delete.
+	ChannelRegistry *services.ChannelRegistry
 }

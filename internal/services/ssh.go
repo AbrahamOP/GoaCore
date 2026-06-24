@@ -3,6 +3,7 @@ package services
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -161,6 +162,52 @@ func GenerateRSAKey(name string) (*models.SSHKey, error) {
 		Name:          name,
 		KeyType:       "RSA",
 		PublicKey:     strings.TrimSpace(publicPEM),
+		PrivateKey:    privatePEM,
+		Fingerprint:   fingerprint,
+		AssociatedVMs: "",
+	}, nil
+}
+
+// GenerateEd25519Key creates an ed25519 key pair for the goabackup channel.
+//
+// It is the modern counterpart of GenerateRSAKey, chosen for the in-app channel
+// key: the private key is emitted as an OpenSSH-format PEM (gossh.MarshalPrivateKey,
+// available in x/crypto v0.31.0) so it round-trips through gossh.ParsePrivateKey in
+// ProxmoxChannel exactly like the file-based key it replaces; the public key is the
+// single-line authorized_keys form (gossh.NewPublicKey + MarshalAuthorizedKey, the
+// same helpers GenerateRSAKey uses), and the fingerprint is the SHA256 form shown in
+// the UI (gossh.FingerprintSHA256, the format OpenSSH prints today). Zero new
+// dependency — stdlib ed25519 + the x/crypto/ssh already in go.mod.
+//
+// The returned PrivateKey is the secret the caller MUST encrypt before persisting
+// (it never touches disk on the GoaCloud side); PublicKey is the authorized_keys
+// line injected into the install script; KeyType is "ed25519".
+func GenerateEd25519Key(name string) (*models.SSHKey, error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate ed25519 key: %w", err)
+	}
+
+	// OpenSSH-format PEM ("OPENSSH PRIVATE KEY") so the channel parses it with the
+	// same gossh.ParsePrivateKey path it uses for the file-based key today.
+	privBlock, err := gossh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		return nil, fmt.Errorf("marshal ed25519 private key: %w", err)
+	}
+	privatePEM := string(pem.EncodeToMemory(privBlock))
+
+	publicKey, err := gossh.NewPublicKey(pub)
+	if err != nil {
+		return nil, fmt.Errorf("wrap ed25519 public key: %w", err)
+	}
+	publicLine := string(gossh.MarshalAuthorizedKey(publicKey))
+
+	fingerprint := gossh.FingerprintSHA256(publicKey)
+
+	return &models.SSHKey{
+		Name:          name,
+		KeyType:       "ed25519",
+		PublicKey:     strings.TrimSpace(publicLine),
 		PrivateKey:    privatePEM,
 		Fingerprint:   fingerprint,
 		AssociatedVMs: "",

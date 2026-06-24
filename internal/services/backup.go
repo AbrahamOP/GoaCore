@@ -119,7 +119,11 @@ type BackupService struct {
 	// nil-safe: an unset provider, or one that returns a nil bot, simply skips the
 	// notification.
 	discordProvider DiscordProvider
-	channel         *ProxmoxChannel
+	// channelProvider yields the LIVE read-only Proxmox channel at the head of each
+	// op (never a frozen pointer captured at wiring time), so a provision/rotation
+	// hot-reload reaches every backup/restore path. nil-safe: an unset provider, or
+	// one that returns a nil channel, degrades to a clean "channel not configured".
+	channelProvider ChannelProvider
 
 	// testInFlight tracks which target IDs currently have a restore test running,
 	// to enforce one test at a time per target (anti-concurrency).
@@ -199,11 +203,43 @@ func (s *BackupService) discordBot() *DiscordBot {
 	return s.discordProvider.Discord()
 }
 
-// SetChannel wires the read-only Proxmox helper channel for restore testing
-// (optional; nil-safe — the feature degrades to clear errors if absent).
-func (s *BackupService) SetChannel(c *ProxmoxChannel) {
-	s.channel = c
+// SetChannelProvider wires the LIVE read-only Proxmox channel source (the
+// ChannelRegistry). Every channel op resolves through liveChannel() at its head, so a
+// provision/rotation hot-reload is picked up by in-flight and future runs without a
+// restart. This is the preferred wiring; SetChannel is the static-pointer shim.
+func (s *BackupService) SetChannelProvider(p ChannelProvider) {
+	s.channelProvider = p
 }
+
+// SetChannel wires a single, FROZEN channel pointer for restore testing (optional;
+// nil-safe — the feature degrades to clear errors if absent). It is the retro-compat
+// shim: it wraps the pointer in a static provider so liveChannel() keeps working. New
+// callers should prefer SetChannelProvider so a hot-reload reaches them.
+func (s *BackupService) SetChannel(c *ProxmoxChannel) {
+	s.channelProvider = staticChannelProvider{c: c}
+}
+
+// liveChannel resolves the channel to use for the current op. It NEVER returns nil:
+// an unset provider or a provider returning nil collapses to an empty (unconfigured)
+// *ProxmoxChannel, so every caller can safely call Configured()/ops and get a clean
+// "not configured" error rather than a nil panic. Resolve through this at the head of
+// every op — never cache the result — so a hot-reload takes effect on the next op.
+func (s *BackupService) liveChannel() *ProxmoxChannel {
+	if s.channelProvider == nil {
+		return &ProxmoxChannel{}
+	}
+	if c := s.channelProvider.Channel(); c != nil {
+		return c
+	}
+	return &ProxmoxChannel{}
+}
+
+// staticChannelProvider adapts a single frozen *ProxmoxChannel to the ChannelProvider
+// contract, for the SetChannel retro-compat path and tests. It returns the same
+// pointer every call (no hot-reload), which is exactly the legacy behaviour.
+type staticChannelProvider struct{ c *ProxmoxChannel }
+
+func (p staticChannelProvider) Channel() *ProxmoxChannel { return p.c }
 
 // ListRemotes returns the user's rclone remotes with their capacity, for the UI.
 // The remote names come LIVE from the helper (rclone listremotes) — they are never
@@ -212,17 +248,19 @@ func (s *BackupService) SetChannel(c *ProxmoxChannel) {
 // sizes at 0 (tolerant), so one broken backend never hides the rest of the list.
 // Returns a clear error if the channel is not configured.
 func (s *BackupService) ListRemotes() ([]RemoteInfo, error) {
-	if !s.channel.Configured() {
+	// Resolve the LIVE channel once at the head of the op (hot-reload aware).
+	channel := s.liveChannel()
+	if !channel.Configured() {
 		return nil, fmt.Errorf("rclone destinations unavailable: Proxmox channel not configured")
 	}
-	names, err := s.channel.RcloneRemotes()
+	names, err := channel.RcloneRemotes()
 	if err != nil {
 		return nil, fmt.Errorf("list rclone remotes: %w", err)
 	}
 	infos := make([]RemoteInfo, 0, len(names))
 	for _, name := range names {
 		info := RemoteInfo{Name: name}
-		used, free, total, aerr := s.channel.RcloneAbout(name)
+		used, free, total, aerr := channel.RcloneAbout(name)
 		if aerr != nil {
 			// Tolerant: keep the remote in the list with zero sizes.
 			slog.Warn("backup: rclone about failed", "remote", name, "error", aerr)
@@ -449,10 +487,11 @@ func (s *BackupService) TriggerBackup(targetID int, destination, remote, usernam
 	// For off-site destinations, the channel is mandatory and the remote must be
 	// one of the user's real rclone remotes (listed dynamically, never hardcoded).
 	if destination != DestinationLocal {
-		if !s.channel.Configured() {
+		channel := s.liveChannel()
+		if !channel.Configured() {
 			return 0, fmt.Errorf("destination %q requires the Proxmox channel, which is not configured", destination)
 		}
-		remotes, rerr := s.channel.RcloneRemotes()
+		remotes, rerr := channel.RcloneRemotes()
 		if rerr != nil {
 			return 0, fmt.Errorf("list rclone remotes: %w", rerr)
 		}
@@ -600,7 +639,8 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 			}
 
 			keepLocal := destination == DestinationBoth
-			pushedArchive, pushErr := s.channel.RclonePush(vmid, remote, keepLocal)
+			// Resolve the LIVE channel at the head of the push (hot-reload aware).
+			pushedArchive, pushErr := s.liveChannel().RclonePush(vmid, remote, keepLocal)
 			if pushErr != nil {
 				msg := fmt.Sprintf("vzdump local OK mais échec de l'envoi vers %s : %v (la copie locale est conservée)", remote, pushErr)
 				slog.Error("backup: rclone push failed", "run_id", runID, "vmid", vmid, "remote", remote, "error", pushErr)

@@ -24,32 +24,61 @@ import (
 // check would silently degrade the (optional) restore-test feature. The risk
 // surface (internal-only, key-auth, read-only forced command) is acceptable.
 type ProxmoxChannel struct {
-	host    string
-	user    string
+	host string
+	user string
+
+	// keyPEM is the in-memory OpenSSH private key (the in-app-generated ed25519 key
+	// loaded from the encrypted DB row). When present it takes PRECEDENCE over keyFile:
+	// the private key NEVER touches the GoaCloud disk on this path. keyFile is the
+	// retro-compat fallback (GOABACKUP_SSH_KEY_FILE — the HomeLab instance mounts it),
+	// used only when keyPEM is empty. Exactly one of the two is the live source.
+	keyPEM  []byte
 	keyFile string
 }
 
-// NewProxmoxChannel builds a channel client from config. It is always safe to
-// build (no I/O here); operations fail with a clear error if the channel is not
-// configured (missing host/key), so the restore-test feature degrades gracefully.
+// NewProxmoxChannel builds a channel client from config (the env/file path). It is
+// always safe to build (no I/O here); operations fail with a clear error if the
+// channel is not configured (missing host/key), so the restore-test feature degrades
+// gracefully. This is the retro-compat constructor that keeps reading the key from
+// GOABACKUP_SSH_KEY_FILE — the HomeLab instance must NOT regress.
 func NewProxmoxChannel(cfg *config.Config) *ProxmoxChannel {
 	if cfg == nil {
 		return &ProxmoxChannel{}
 	}
-	host := cfg.GoabackupSSHHost
-	if host != "" && !strings.Contains(host, ":") {
-		host += ":22"
-	}
 	return &ProxmoxChannel{
-		host:    host,
+		host:    normalizeChannelHost(cfg.GoabackupSSHHost),
 		user:    cfg.GoabackupSSHUser,
 		keyFile: cfg.GoabackupSSHKeyFile,
 	}
 }
 
-// Configured reports whether the channel has the minimum settings to operate.
+// NewProxmoxChannelFromKey builds a channel client holding the private key IN MEMORY
+// (the in-app-generated ed25519 key decrypted from the DB row). The PEM never lands
+// on disk: run() parses it directly. user empties to "goabackup" at run time. This is
+// the DB-first path; pass an empty host to publish an unconfigured (degraded) channel.
+func NewProxmoxChannelFromKey(host, user string, keyPEM []byte) *ProxmoxChannel {
+	return &ProxmoxChannel{
+		host:   normalizeChannelHost(host),
+		user:   user,
+		keyPEM: keyPEM,
+	}
+}
+
+// normalizeChannelHost appends the default SSH port when the host carries none, so
+// gossh.Dial always receives an "ip:port" target. An empty host stays empty (the
+// channel reports unconfigured).
+func normalizeChannelHost(host string) string {
+	if host != "" && !strings.Contains(host, ":") {
+		host += ":22"
+	}
+	return host
+}
+
+// Configured reports whether the channel has the minimum settings to operate: a host
+// plus a usable key (the in-memory PEM OR the fallback key file). The DB-first path
+// (keyPEM) and the env path (keyFile) are both accepted.
 func (c *ProxmoxChannel) Configured() bool {
-	return c != nil && c.host != "" && c.keyFile != ""
+	return c != nil && c.host != "" && (len(c.keyPEM) > 0 || c.keyFile != "")
 }
 
 // run sends a single operation over a fresh SSH session and returns the raw
@@ -58,13 +87,20 @@ func (c *ProxmoxChannel) run(op string, timeout time.Duration) (string, error) {
 	if c == nil {
 		return "", fmt.Errorf("proxmox channel: not configured")
 	}
-	if c.host == "" || c.keyFile == "" {
-		return "", fmt.Errorf("proxmox channel: not configured (missing host or key file)")
+	if c.host == "" || (len(c.keyPEM) == 0 && c.keyFile == "") {
+		return "", fmt.Errorf("proxmox channel: not configured (missing host or key)")
 	}
 
-	keyBytes, err := os.ReadFile(c.keyFile)
-	if err != nil {
-		return "", fmt.Errorf("proxmox channel: read key %s: %w", c.keyFile, err)
+	// Key source precedence: the in-memory PEM (DB-provisioned, never on disk) wins;
+	// the key FILE (GOABACKUP_SSH_KEY_FILE) is the retro-compat fallback only when no
+	// PEM is loaded. An empty PEM is treated as "no DB key" so the file path is tried.
+	keyBytes := c.keyPEM
+	if len(keyBytes) == 0 {
+		fileBytes, err := os.ReadFile(c.keyFile)
+		if err != nil {
+			return "", fmt.Errorf("proxmox channel: read key %s: %w", c.keyFile, err)
+		}
+		keyBytes = fileBytes
 	}
 	signer, err := gossh.ParsePrivateKey(keyBytes)
 	if err != nil {

@@ -92,6 +92,8 @@ func (h *Handler) renderConnexions(w http.ResponseWriter, r *http.Request, errMs
 		"Discord":       h.discordCard(),
 		"ProxmoxLink":   "/onboarding/proxmox",
 		"ProxmoxStatus": h.proxmoxCardStatus(),
+		"ChannelLink":   "/onboarding/canal",
+		"ChannelStatus": h.channelCardStatus(),
 	}
 	if err := h.Templates.ExecuteTemplate(w, "onboarding-connexions.html", data); err != nil {
 		slog.Error("Template error (onboarding-connexions.html)", "error", err)

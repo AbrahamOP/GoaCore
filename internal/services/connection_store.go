@@ -14,11 +14,12 @@ import (
 // connections.service keys. One row per service; absence of a row means
 // "not configured" (there is deliberately no INSERT IGNORE seeding any of them).
 const (
-	serviceProxmox      = "proxmox"
-	serviceWazuh        = "wazuh"
-	serviceWazuhIndexer = "wazuh-indexer"
-	serviceAI           = "ai"
-	serviceDiscord      = "discord"
+	serviceProxmox          = "proxmox"
+	serviceWazuh            = "wazuh"
+	serviceWazuhIndexer     = "wazuh-indexer"
+	serviceAI               = "ai"
+	serviceDiscord          = "discord"
+	serviceGoabackupChannel = "goabackup-channel"
 )
 
 // ConnectionStore persists per-service infrastructure credentials in the
@@ -429,4 +430,87 @@ func DiscordExtra(c *models.Connection) (authChannel, ansibleChannel string) {
 		return "", ""
 	}
 	return c.Extra["auth_channel"], c.Extra["ansible_channel"]
+}
+
+// --- Goabackup channel quartet (service='goabackup-channel') ---
+//
+// The read-only Proxmox helper channel persists the in-app-generated ed25519 KEY,
+// not an admin-typed credential. The OpenSSH private-key PEM is the encrypted secret
+// (secret_enc); the PUBLIC key, fingerprint and key type are non-secrets carried in
+// extra_json so the install endpoint and the UI can read them WITHOUT ever touching
+// the private key. The channel target is url=host("ip:port") / token_id=user. ZERO
+// schema migration — this is the generic save()/getDecrypted()/delete() reused.
+
+// GetGoabackupChannel loads the 'goabackup-channel' row and decrypts its private
+// key PEM. Same contract as GetProxmox: (nil,"",nil) when absent (clean "not
+// configured" → the channel falls back to GOABACKUP_SSH_KEY_FILE), and on an
+// undecipherable secret (SESSION_SECRET rotation) returns (conn,"",err) — never
+// fatal, never a panic. The caller marks the channel errored and re-provisions.
+func (s *ConnectionStore) GetGoabackupChannel() (*models.Connection, string, error) {
+	return s.getDecrypted(serviceGoabackupChannel)
+}
+
+// SaveGoabackupChannel encrypts the private key PEM and upserts the
+// 'goabackup-channel' row (OVERWRITE, ON DUPLICATE KEY UPDATE — a rotation replaces
+// the single row, it never appends). The public key, fingerprint and key type go in
+// clear to extra_json; the private PEM goes ONLY to the encrypted secret column and
+// is never mirrored into extra_json. source='db'.
+func (s *ConnectionStore) SaveGoabackupChannel(form models.GoabackupChannelForm, updatedBy string) error {
+	return s.saveGoabackupChannel(form, updatedBy, "db")
+}
+
+func (s *ConnectionStore) saveGoabackupChannel(form models.GoabackupChannelForm, updatedBy, source string) error {
+	// extra_json is the CLEAR (non-secret) blob: the authorized_keys public line, its
+	// SHA256 fingerprint and the key type. The private PEM is the encrypted secret and
+	// must NEVER appear here (it would defeat the at-rest encryption).
+	extra := map[string]string{
+		"pubkey":      form.PublicKey,
+		"fingerprint": form.Fingerprint,
+		"keytype":     form.KeyType,
+	}
+	return s.save(serviceGoabackupChannel, form.Host, "", form.User, form.PrivateKeyPEM,
+		extra, updatedBy, source)
+}
+
+// DeleteGoabackupChannel removes the 'goabackup-channel' row. This is the documented
+// rollback: with the row gone, the channel falls back to the env GOABACKUP_SSH_*
+// (keyFile) at the next boot, or the live registry publishes the env channel via
+// RollbackToEnv. NOTE: deleting the DB row does NOT remove the authorized_keys line
+// on the Proxmox host — host-side revocation is a separate manual procedure shown in
+// the UI at delete time.
+func (s *ConnectionStore) DeleteGoabackupChannel() (int64, error) {
+	return s.delete(serviceGoabackupChannel)
+}
+
+// ImportFromEnvGoabackupChannel seeds the 'goabackup-channel' row from the
+// environment in one explicit click. CRITICAL nuance: the env carries a key FILE
+// PATH (GOABACKUP_SSH_KEY_FILE), NOT a private-key PEM, so this import records only
+// the host/user (source='env') with an EMPTY secret and empty extra. The empty
+// secret deliberately signals "no in-DB key" so the channel falls back to the env
+// keyFile at runtime — it never fabricates a phantom key. It errors when the env has
+// no host to import. (To put a real key in the DB, the admin uses provision, which
+// generates + encrypts a fresh ed25519 pair.)
+func (s *ConnectionStore) ImportFromEnvGoabackupChannel(cfg *config.Config) error {
+	if cfg.GoabackupSSHHost == "" {
+		return errors.New("no goabackup channel configuration in environment to import")
+	}
+	host := cfg.GoabackupSSHHost
+	form := models.GoabackupChannelForm{
+		Host: host,
+		User: cfg.GoabackupSSHUser,
+		// No PEM/pubkey/fingerprint: the env path keeps using the key FILE, not a DB
+		// key. Empty secret ⇒ the channel resolver reads GOABACKUP_SSH_KEY_FILE.
+	}
+	return s.saveGoabackupChannel(form, "import-env", "env")
+}
+
+// GoabackupChannelExtra extracts the non-secret pubkey / fingerprint / keytype from a
+// loaded 'goabackup-channel' connection's extra_json, with safe empty-string
+// fallbacks. The private key is NEVER reachable through this reader — it lives only
+// in the encrypted secret_enc column, surfaced solely by GetGoabackupChannel.
+func GoabackupChannelExtra(c *models.Connection) (pubkey, fingerprint, keytype string) {
+	if c == nil || c.Extra == nil {
+		return "", "", ""
+	}
+	return c.Extra["pubkey"], c.Extra["fingerprint"], c.Extra["keytype"]
 }

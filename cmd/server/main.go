@@ -116,14 +116,18 @@ func main() {
 
 	backupService := services.NewBackupService(db, proxmoxService, configStore, cfg)
 
-	// Wire the read-only Proxmox helper channel for restore testing (nil-safe:
-	// the feature degrades to clear errors if GOABACKUP_SSH_* are unset).
-	restoreChannel := services.NewProxmoxChannel(cfg)
-	backupService.SetChannel(restoreChannel)
-	if restoreChannel.Configured() {
+	// Wire the read-only Proxmox helper channel for restore testing behind a LIVE
+	// registry (atomic.Pointer), so an in-app provision/rotation hot-reloads it without
+	// a restart. The env-derived channel (GOABACKUP_SSH_KEY_FILE) is the frozen
+	// rollback fallback — the HomeLab instance that mounts the key file must NOT regress.
+	// Precedence at boot: a DB-provisioned in-app key (in-memory, decrypted) > env file.
+	channelRegistry := services.NewChannelRegistry(services.NewProxmoxChannel(cfg))
+	reloadChannelFromDB(connStore, channelRegistry)
+	backupService.SetChannelProvider(channelRegistry)
+	if channelRegistry.Channel().Configured() {
 		slog.Info("Restore-test channel configured", "host", cfg.GoabackupSSHHost, "user", cfg.GoabackupSSHUser)
 	} else {
-		slog.Info("Restore-test channel not configured (missing GOABACKUP_SSH_HOST/KEY_FILE)")
+		slog.Info("Restore-test channel not configured (no DB key and missing GOABACKUP_SSH_HOST/KEY_FILE)")
 	}
 
 	// Reconcile zombie backup runs left "running" by a previous restart: their
@@ -224,7 +228,7 @@ func main() {
 	// host (a crash mid-test can leave one behind). No legitimate guest ever lives
 	// there — the whole range is disposable by definition. Done AFTER the DB
 	// reconciliation above and AFTER Discord is wired so zombie alerts can fire.
-	if restoreChannel.Configured() {
+	if channelRegistry.Channel().Configured() {
 		if n, err := backupService.ReconcileSandboxGuests(); err != nil {
 			slog.Error("restore-test: reconcile sandbox guests", "error", err)
 		} else if n > 0 {
@@ -271,6 +275,9 @@ func main() {
 		ConfigStore:  configStore,
 		Connections:  connStore,
 		Registry:     registry,
+		// The live read-only Proxmox channel (goabackup): the onboarding-canal handlers
+		// read it for the live disk-free probe and hot-reload it on provision/rotation.
+		ChannelRegistry: channelRegistry,
 	}
 
 	// Background workers with context for graceful shutdown
@@ -412,6 +419,41 @@ func reloadProxmoxFromDB(connStore *services.ConnectionStore, configStore *confi
 		SandboxBridge:  sandboxBridge,
 	})
 	logProxmoxSource(configStore, "DB")
+}
+
+// reloadChannelFromDB resolves the effective goabackup channel at boot with the
+// precedence DB(in-app key) > env(key file) > unconfigured, and publishes it through
+// the ChannelRegistry's atomic swap. It mirrors reloadProxmoxFromDB's tolerance: a
+// missing row keeps the env-seeded (key-file) channel; an undecipherable secret logs +
+// records an errored status and keeps the env seed (re-provision path), never aborting
+// the boot.
+//
+// A row whose secret is EMPTY is the import-env case (host/user recorded, but the key
+// stays on disk as a FILE): we deliberately keep the env-seeded file channel rather
+// than publishing a keyless in-memory channel, so the file fallback keeps working.
+// Only a row carrying a real private-key PEM overrides the env seed (in-memory key,
+// never on disk).
+func reloadChannelFromDB(connStore *services.ConnectionStore, reg *services.ChannelRegistry) {
+	conn, secret, err := connStore.GetGoabackupChannel()
+	if err != nil {
+		slog.Warn("goabackup channel in DB could not be loaded — falling back to env key file", "error", err)
+		if serr := connStore.SetStatus("goabackup-channel", "error", "secret indéchiffrable (SESSION_SECRET modifié ?)"); serr != nil {
+			slog.Warn("goabackup channel: set connection status failed", "error", serr)
+		}
+		return
+	}
+	if conn == nil || !conn.Enabled {
+		// No DB override: the env-seeded (key-file) channel stays the source of truth.
+		return
+	}
+	if secret == "" {
+		// import-env row (host/user only, no in-app key): keep the env file channel.
+		slog.Info("goabackup channel: DB row carries no in-app key (import-env) — using env key file")
+		return
+	}
+	// A real in-app private key: publish an in-memory channel (key never on disk).
+	reg.ApplyChannel(conn.URL, conn.TokenID, []byte(secret))
+	slog.Info("goabackup channel resolved", "source", "DB")
 }
 
 // logProxmoxSource logs the effective Proxmox configuration source once at boot.

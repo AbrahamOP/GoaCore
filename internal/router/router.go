@@ -146,6 +146,22 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Post("/api/onboarding/discord/import-env", h.HandleOnboardingDiscordImportEnv)
 		r.Post("/api/onboarding/discord/delete", h.HandleOnboardingDiscordDelete)
 
+		// Onboarding — read-only Proxmox helper CHANNEL (goabackup) + cloud self-service.
+		// GoaCloud GENERATES the ed25519 key and SERVES an auditable install script the
+		// admin runs in root on THEIR Proxmox; it never opens an SSH session to install.
+		// Provision (POST CSRF) generates+persists+hot-reloads the key; installer.sh/
+		// helper.sh are Admin-only GETs serving the script/helper (pubkey is public, the
+		// private key never leaves the DB); test runs a live disk-free proof; delete rolls
+		// back and shows the host-side revocation command. Exempt from the OnboardingGate
+		// by the /onboarding prefix ⇒ reachable on a fresh instance.
+		r.Get("/onboarding/canal", h.HandleOnboardingChannel)
+		r.Post("/api/onboarding/canal/provision", h.HandleOnboardingChannelProvision)
+		r.Get("/api/onboarding/canal/installer.sh", h.HandleOnboardingChannelInstaller)
+		r.Get("/api/onboarding/canal/helper.sh", h.HandleOnboardingChannelHelper)
+		r.Post("/api/onboarding/canal/test", h.HandleOnboardingChannelTest)
+		r.Post("/api/onboarding/canal/import-env", h.HandleOnboardingChannelImportEnv)
+		r.Post("/api/onboarding/canal/delete", h.HandleOnboardingChannelDelete)
+
 		// Proxmox — state-changing / sensitive
 		r.Post("/api/proxmox/guest/power", h.HandleProxmoxPowerAction)
 		r.Post("/api/proxmox/snapshots", h.HandleProxmoxSnapshotCreate)

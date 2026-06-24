@@ -4,9 +4,15 @@
 # ============================================================================
 #
 # DEPLOYMENT REQUIREMENTS:
-#   1. SSH entry (authorized_keys for user 'goabackup'):
+#   0. The 'goabackup' service user MUST have a real login shell (-s /bin/bash):
+#      the forced-command runs the shell, so /bin/false / /usr/sbin/nologin would
+#      reject every connection. Create it idempotently with:
+#        useradd -r -m -d /home/goabackup -s /bin/bash goabackup
+#
+#   1. SSH entry (authorized_keys for user 'goabackup'), ONE single line, the public
+#      key being the in-app-generated ed25519 key (ssh-ed25519 ...), never RSA:
 #      command="sudo /usr/local/bin/goabackup-runner.sh",no-port-forwarding,\
-#      no-agent-forwarding,no-X11-forwarding,no-pty ssh-rsa AAAA...
+#      no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA...
 #
 #   2. Sudoers configuration (/etc/sudoers.d/goabackup):
 #      goabackup ALL=(root) NOPASSWD: /usr/local/bin/goabackup-runner.sh

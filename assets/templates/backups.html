@@ -358,6 +358,15 @@
 
             // --- Destinations (rclone remotes) ---------------------------------
 
+            // Échappe le HTML. r.Name provient de l'hôte Proxmox (rclone listremotes,
+            // sans filtre [a-zA-Z0-9_-] au listing) → frontière de confiance distincte,
+            // esc() obligatoire avant toute interpolation dans innerHTML (anti DOM-XSS).
+            function esc(s) {
+                return String(s == null ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+
             function humanBytes(b) {
                 b = Number(b) || 0;
                 if (b <= 0) return '—';
@@ -387,7 +396,7 @@
             // Fill every per-row remote <select> with the user's actual remotes.
             function populateRemoteSelects() {
                 const opts = (remotesCache || []).map(r =>
-                    '<option value="' + r.Name + '">' + r.Name + '</option>').join('');
+                    '<option value="' + esc(r.Name) + '">' + esc(r.Name) + '</option>').join('');
                 document.querySelectorAll('.backup-remote').forEach(sel => {
                     sel.innerHTML = opts;
                 });
@@ -404,7 +413,7 @@
                 }
                 tbody.innerHTML = list.map(r =>
                     '<tr>' +
-                    '<td class="px-4 py-3 font-medium text-on-surface font-mono text-xs">' + r.Name + '</td>' +
+                    '<td class="px-4 py-3 font-medium text-on-surface font-mono text-xs">' + esc(r.Name) + '</td>' +
                     '<td class="px-4 py-3">' + humanBytes(r.UsedBytes) + '</td>' +
                     '<td class="px-4 py-3">' + humanBytes(r.FreeBytes) + '</td>' +
                     '<td class="px-4 py-3">' + humanBytes(r.TotalBytes) + '</td>' +

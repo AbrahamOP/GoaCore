@@ -91,6 +91,15 @@ type DiscordProvider interface {
 	Discord() *DiscordBot
 }
 
+// ChannelProvider is the narrow contract BackupService depends on to read the LIVE
+// read-only Proxmox channel at the head of each op (never a pointer frozen at wiring
+// time), so a provision/rotation hot-reload reaches every backup/restore path.
+// *ChannelRegistry satisfies it via Channel(). It is the channel analogue of
+// DiscordProvider, keeping BackupService decoupled from the registry concrete type.
+type ChannelProvider interface {
+	Channel() *ProxmoxChannel
+}
+
 // NewServiceRegistry builds an empty registry carrying the boot TLS policy. The
 // holders are seeded via Seed* before any worker starts.
 func NewServiceRegistry(skipTLS bool) *ServiceRegistry {
@@ -272,6 +281,93 @@ func (r *ServiceRegistry) ApplyDiscord(token, channelID, authChannel, ansibleCha
 	}
 	slog.Info("Discord hot-reload: new session live", "channel", channelID)
 	return nil
+}
+
+// ChannelRegistry is the live-snapshot holder for the read-only Proxmox helper
+// channel (goabackup), the analogue of ServiceRegistry for the one channel client.
+// It lets the channel be hot-reloaded in place after boot — when an admin provisions
+// or rotates the in-app key — WITHOUT a restart and without a data race, exactly the
+// way ServiceRegistry hot-reloads Wazuh/AI/Discord and ConfigStore hot-reloads
+// Proxmox.
+//
+// The channel is stateless (it dials a fresh SSH session per op, holds no socket and
+// no token cache), so a hot-reload is a single atomic Store of a freshly-built
+// *ProxmoxChannel and the old one is simply GC'd — no Close, no cleanup. Every reader
+// (request handlers AND the BackupService background paths) MUST read it lock-free via
+// Channel() AT THE TOP of each operation, never caching the returned pointer across a
+// long-running loop, so a provision/rotation takes effect on the next op.
+//
+// The env-derived channel built at boot (from GOABACKUP_SSH_KEY_FILE) is frozen as the
+// rollback fallback so DeleteGoabackupChannel can RollbackToEnv live — reverting to the
+// file-based key (or to an unconfigured channel when env carried none) immediately,
+// never re-applying a since-deleted DB key.
+type ChannelRegistry struct {
+	cur atomic.Pointer[ProxmoxChannel]
+
+	// env is the boot/env-derived channel (key FILE based), frozen BEFORE any DB
+	// override. It is the immutable fallback republished by RollbackToEnv. It is never
+	// reassigned after construction.
+	env *ProxmoxChannel
+}
+
+// NewChannelRegistry builds the registry seeded with the env-derived channel (which
+// may be unconfigured when GOABACKUP_SSH_* are unset). The same env channel is frozen
+// as the rollback fallback. envChannel may be nil; it is normalised to an empty
+// (unconfigured) channel so Channel() never returns nil.
+func NewChannelRegistry(envChannel *ProxmoxChannel) *ChannelRegistry {
+	if envChannel == nil {
+		envChannel = &ProxmoxChannel{}
+	}
+	r := &ChannelRegistry{env: envChannel}
+	r.cur.Store(envChannel)
+	return r
+}
+
+// Channel returns the LIVE channel, lock-free. It never returns nil: an unconfigured
+// channel is a real *ProxmoxChannel whose Configured() is false, so every caller can
+// safely call Configured()/ops on it and get a clean "not configured" error. Callers
+// MUST re-read this at the top of each operation so a hot-reload reaches them.
+func (r *ChannelRegistry) Channel() *ProxmoxChannel {
+	if c := r.cur.Load(); c != nil {
+		return c
+	}
+	return &ProxmoxChannel{}
+}
+
+// ApplyChannel publishes a freshly-built channel atomically (single swap). It is the
+// post-boot write path used by provision/rotation and by the in-app save: build the
+// channel from the new host/user/keyPEM (the decrypted in-memory private key) and
+// swap it in. Empty host/keyPEM yields an unconfigured channel that degrades cleanly.
+// Safe to call concurrently with any number of Channel() readers.
+func (r *ChannelRegistry) ApplyChannel(host, user string, keyPEM []byte) {
+	r.cur.Store(NewProxmoxChannelFromKey(host, user, keyPEM))
+}
+
+// ApplyChannelClient publishes a pre-built channel atomically. It exists for callers
+// that already hold a *ProxmoxChannel (e.g. seeding the DB-built channel at boot, or
+// publishing a nil-degrading empty channel on delete-without-env). nil is normalised
+// to an empty unconfigured channel.
+func (r *ChannelRegistry) ApplyChannelClient(c *ProxmoxChannel) {
+	if c == nil {
+		c = &ProxmoxChannel{}
+	}
+	r.cur.Store(c)
+}
+
+// RollbackToEnv re-publishes the env-derived (key-FILE) channel frozen at boot. It is
+// the live counterpart of deleting the in-app DB row: the channel reverts to the env
+// fallback (or to unconfigured when env carried none) immediately, with the same
+// atomic-swap guarantee as ApplyChannel. It returns the restored channel so the caller
+// can report whether the fallback is itself configured.
+func (r *ChannelRegistry) RollbackToEnv() *ProxmoxChannel {
+	r.cur.Store(r.env)
+	return r.env
+}
+
+// EnvChannel returns the env-derived channel frozen at construction (read-only
+// fallback), regardless of any DB override applied since.
+func (r *ChannelRegistry) EnvChannel() *ProxmoxChannel {
+	return r.env
 }
 
 // boundedCloseDiscord closes a replaced Discord session in its own goroutine with a

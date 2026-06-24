@@ -115,7 +115,10 @@ func (s *BackupService) runRestoreTestAsync(testID int, t models.BackupTarget, v
 // runLevelN1 verifies off-site archive integrity via the channel (no restore).
 func (s *BackupService) runLevelN1(testID int, t models.BackupTarget, vmid int, logs *strings.Builder, logf func(string, ...any)) {
 	logf("N1 — vérification d'intégrité off-site (cryptcheck) pour VMID %d", vmid)
-	if s.channel == nil || !s.channel.Configured() {
+	// Resolve the LIVE channel once for the whole N1 op (hot-reload aware, coherent
+	// for the single logical operation).
+	channel := s.liveChannel()
+	if !channel.Configured() {
 		logf("canal Proxmox non configuré — test impossible")
 		s.finishTest(testID, "failed", 0, 0, logs.String())
 		s.notifyRestoreTest(t.Name, 0, "N1", "failed", "canal non configuré")
@@ -135,7 +138,7 @@ func (s *BackupService) runLevelN1(testID int, t models.BackupTarget, vmid int, 
 	} else {
 		logf("remote off-site: %s (dernier push de la cible)", remote)
 	}
-	ok, detail, err := s.channel.Cryptcheck(vmid, remote)
+	ok, detail, err := channel.Cryptcheck(vmid, remote)
 	if err != nil {
 		logf("échec cryptcheck: %v", err)
 		s.finishTest(testID, "failed", 0, 0, logs.String())
@@ -177,7 +180,11 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 		s.notifyRestoreTest(t.Name, 0, level, "failed", detail)
 	}
 
-	if s.channel == nil || !s.channel.Configured() {
+	// Resolve the LIVE channel ONCE for the whole restore op (restore → boot →
+	// healthcheck → destroy is one logical operation; a hot-reload mid-run must not
+	// swap the channel underneath it). Hot-reload aware, coherent for this run.
+	channel := s.liveChannel()
+	if !channel.Configured() {
 		logf("canal Proxmox non configuré — test impossible")
 		fail("canal non configuré")
 		return
@@ -188,7 +195,7 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	// reading (DiskInfo.HasThinPoolCeiling): a backend without a thin_data_pct (ZFS/dir
 	// → 0 from the helper, or an old helper with no backend field) must NOT be read as
 	// "0% used ⇒ always pass" — the universal avail floor still applies below.
-	disk, err := s.channel.DiskFree()
+	disk, err := channel.DiskFree()
 	if err != nil {
 		logf("échec contrôle disque: %v", err)
 		fail(err.Error())
@@ -218,8 +225,9 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 		return
 	}
 
-	// 2. Pick a free sandbox VMID via Ping (status == "absent").
-	sandboxVMID, err := s.pickFreeSandboxVMID(logf)
+	// 2. Pick a free sandbox VMID via Ping (status == "absent"), using the channel
+	// resolved at the head of this op.
+	sandboxVMID, err := s.pickFreeSandboxVMID(channel.Ping, logf)
 	if err != nil {
 		logf("aucun VMID sandbox libre: %v", err)
 		fail(err.Error())
@@ -325,7 +333,7 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 		fail("démarrage: " + err.Error())
 		return
 	}
-	if err := s.waitSandboxRunning(sandboxVMID, logf); err != nil {
+	if err := s.waitSandboxRunning(channel.Ping, sandboxVMID, logf); err != nil {
 		logf("le sandbox n'a pas démarré: %v", err)
 		fail(err.Error())
 		return
@@ -345,7 +353,7 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 			if t.HealthcheckType == "port" {
 				kind = "port"
 			}
-			ok, detail, herr := s.channel.Healthcheck(sandboxVMID, pveType, kind, t.HealthcheckTarget)
+			ok, detail, herr := channel.Healthcheck(sandboxVMID, pveType, kind, t.HealthcheckTarget)
 			if herr != nil {
 				logf("échec healthcheck: %v", herr)
 				s.finishTest(testID, "failed", rto, sandboxVMID, logs.String())
@@ -376,8 +384,8 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 // pass: probe each candidate's Proxmox status WITHOUT the lock, then, holding the
 // lock, re-check it isn't reserved and claim it atomically. The reservation must be
 // released later via releaseSandboxVMID (the destroy defer does this).
-func (s *BackupService) pickFreeSandboxVMID(logf func(string, ...any)) (int, error) {
-	return s.pickFreeSandboxVMIDWith(s.channel.Ping, logf)
+func (s *BackupService) pickFreeSandboxVMID(pingFn func(int) (string, error), logf func(string, ...any)) (int, error) {
+	return s.pickFreeSandboxVMIDWith(pingFn, logf)
 }
 
 // pickFreeSandboxVMIDWith is the testable core of pickFreeSandboxVMID: it takes the
@@ -446,12 +454,14 @@ func (s *BackupService) releaseSandboxVMID(vmid int) {
 	delete(s.sandboxInUse, vmid)
 }
 
-// waitSandboxRunning polls the channel until the sandbox reports "running".
-func (s *BackupService) waitSandboxRunning(vmid int, logf func(string, ...any)) error {
+// waitSandboxRunning polls the channel until the sandbox reports "running". pingFn is
+// the LIVE channel's Ping resolved at the head of the restore op, passed in so the
+// whole run uses one coherent channel even across a mid-run hot-reload.
+func (s *BackupService) waitSandboxRunning(pingFn func(int) (string, error), vmid int, logf func(string, ...any)) error {
 	deadline := time.Now().Add(bootWaitTimeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(restorePollInterval)
-		status, err := s.channel.Ping(vmid)
+		status, err := pingFn(vmid)
 		if err != nil {
 			logf("ping %d (attente boot): %v", vmid, err)
 			continue

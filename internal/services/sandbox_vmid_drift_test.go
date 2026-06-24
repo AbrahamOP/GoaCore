@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"goacloud/deploy/goabackup"
 	"goacloud/internal/config"
 )
 
@@ -33,26 +34,51 @@ func helperRunnerPath(t *testing.T) string {
 // VMID gates: the Go pre-filter (sandboxVMIDMin/Max) and the bash AUTHORITY
 // (VMID_SANDBOX_MIN/MAX). They MUST stay identical — a silent divergence (Go thinks
 // 9500-9599, bash widened the range) is worse than no guard, because it produces a
-// false sense of safety while letting a destructive op reach a prod VMID. This test
-// parses the helper's readonly constants and fails the build on any mismatch.
+// false sense of safety while letting a destructive op reach a prod VMID.
+//
+// SOURCE OF TRUTH = the EMBED (goabackup.Runner), the EXACT bytes the installer
+// endpoint serves and that travel in the binary (the Dockerfile does not copy
+// deploy/). Parsing the embed — not a loose file — is what makes "what we serve"
+// and "what Go enforces" provably identical. The build fails on any mismatch.
 func TestSandboxVMIDRangeMatchesHelper(t *testing.T) {
+	script := goabackup.Runner
+	if script == "" {
+		t.Fatal("embedded goabackup.Runner is empty (embed.go missing or //go:embed broken)")
+	}
+
+	min := parseHelperConst(t, script, "VMID_SANDBOX_MIN")
+	max := parseHelperConst(t, script, "VMID_SANDBOX_MAX")
+
+	if min != sandboxVMIDMin {
+		t.Errorf("VMID_SANDBOX_MIN drift: embedded helper=%d Go=%d", min, sandboxVMIDMin)
+	}
+	if max != sandboxVMIDMax {
+		t.Errorf("VMID_SANDBOX_MAX drift: embedded helper=%d Go=%d", max, sandboxVMIDMax)
+	}
+}
+
+// TestEmbeddedHelperMatchesVendoredFile closes the only remaining gap: the embed is
+// resolved at COMPILE time, so a stale binary could embed an old helper while the
+// repo's vendored file (and the //go:embed directive's target) moved on. This asserts
+// the embedded bytes equal the on-disk vendored copy byte-for-byte, so the embed can
+// never silently lag the file the rest of the toolchain (and a reviewer) reads. It is
+// SKIPPED — not failed — on a checkout without the vendored file or with an explicit
+// GOABACKUP_RUNNER_PATH override pointing elsewhere, so the embed test above remains
+// the mandatory guard while this one tightens the CI checkout where the file exists.
+func TestEmbeddedHelperMatchesVendoredFile(t *testing.T) {
+	if os.Getenv("GOABACKUP_RUNNER_PATH") != "" {
+		t.Skip("GOABACKUP_RUNNER_PATH override set — skipping embed==vendored-file equality (the embed is the served authority)")
+	}
 	path := helperRunnerPath(t)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			t.Skipf("helper not vendored at %s (set GOABACKUP_RUNNER_PATH to enforce locally)", path)
+			t.Skipf("helper not vendored at %s — embed is the authority, equality check skipped", path)
 		}
-		t.Fatalf("read helper %s: %v", path, err)
+		t.Fatalf("read vendored helper %s: %v", path, err)
 	}
-
-	min := parseHelperConst(t, string(data), "VMID_SANDBOX_MIN")
-	max := parseHelperConst(t, string(data), "VMID_SANDBOX_MAX")
-
-	if min != sandboxVMIDMin {
-		t.Errorf("VMID_SANDBOX_MIN drift: helper=%d Go=%d", min, sandboxVMIDMin)
-	}
-	if max != sandboxVMIDMax {
-		t.Errorf("VMID_SANDBOX_MAX drift: helper=%d Go=%d", max, sandboxVMIDMax)
+	if string(data) != goabackup.Runner {
+		t.Errorf("embedded goabackup.Runner differs from vendored file %s — the served helper and the repo copy have drifted (rebuild or re-vendor)", path)
 	}
 }
 

@@ -80,6 +80,29 @@
             </a>
         </div>
 
+        <!-- Canal de sauvegarde & cloud (page dédiée : clé in-app + script d'install + off-site) -->
+        <div class="mb-5 p-4 rounded-xl bg-surface-container border border-outline-variant flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg
+                    {{if eq .ChannelStatus "ok"}}bg-green-500/15 text-green-300{{else if eq .ChannelStatus "env"}}bg-blue-500/15 text-blue-300{{else}}bg-orange-500/15 text-orange-300{{end}}">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                    </svg>
+                </span>
+                <div>
+                    <div class="text-sm font-semibold text-on-surface">Canal & cloud de sauvegarde</div>
+                    <div class="text-xs text-on-surface-variant">
+                        {{if eq .ChannelStatus "ok"}}Clé in-app vérifiée{{else if eq .ChannelStatus "db"}}Clé in-app — à vérifier{{else if eq .ChannelStatus "env"}}Clé fichier (env){{else}}Non configuré{{end}} — page dédiée
+                    </div>
+                </div>
+            </div>
+            <a href="{{.ChannelLink}}"
+                class="flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold bg-surface-container-high border border-outline text-on-surface hover:shadow-md transition">
+                Gérer
+            </a>
+        </div>
+
         <!-- ===================== Wazuh Indexer panel ===================== -->
         {{with .WazuhIndexer}}
         <div class="mb-5 bg-surface-container rounded-xl p-6 shadow-lg border border-outline-variant"
