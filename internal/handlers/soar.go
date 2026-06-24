@@ -74,8 +74,13 @@ func (h *Handler) HandleSoarConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		h.SoarConfig.Mutex.Unlock()
 
+		// Persist before acknowledging: a failed write that returned 200 would let
+		// the admin believe the toggle survived a reboot when it did not (silent
+		// data loss). Surface the failure as 500 so the UI can report it.
 		if err := h.saveSoarConfig(); err != nil {
 			slog.Error("Failed to persist SOAR config", "error", err)
+			http.Error(w, "Failed to persist SOAR configuration", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 	}

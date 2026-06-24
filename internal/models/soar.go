@@ -15,8 +15,14 @@ type SoarConfig struct {
 }
 
 // SoarConfigState wraps SoarConfig with a mutex for concurrent access.
+//
+// Loaded reports whether Config was ever populated from a successful DB read. It
+// lets the loader distinguish a genuine first boot (no row yet → apply defaults)
+// from a transient DB error after a good load (keep the last-known-good config
+// instead of silently resetting an admin's toggles to "all enabled").
 type SoarConfigState struct {
 	Config SoarConfig
+	Loaded bool
 	Mutex  sync.RWMutex
 }
 
