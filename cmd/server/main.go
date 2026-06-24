@@ -114,7 +114,7 @@ func main() {
 	// is tolerant by design — a missing/undecipherable row never aborts the boot.
 	reloadProxmoxFromDB(connStore, configStore)
 
-	backupService := services.NewBackupService(db, proxmoxService, configStore)
+	backupService := services.NewBackupService(db, proxmoxService, configStore, cfg)
 
 	// Wire the read-only Proxmox helper channel for restore testing (nil-safe:
 	// the feature degrades to clear errors if GOABACKUP_SSH_* are unset).
@@ -398,13 +398,18 @@ func reloadProxmoxFromDB(connStore *services.ConnectionStore, configStore *confi
 		return
 	}
 	storage, bridge := services.ProxmoxExtra(conn)
+	restoreStorage, cryptRemote, sandboxBridge, sandboxVlan := services.ProxmoxSandboxExtra(conn)
 	configStore.ApplyProxmox(config.ProxmoxConn{
-		URL:         conn.URL,
-		Node:        conn.Node,
-		TokenID:     conn.TokenID,
-		TokenSecret: secret,
-		Storage:     storage,
-		Bridge:      bridge,
+		URL:            conn.URL,
+		Node:           conn.Node,
+		TokenID:        conn.TokenID,
+		TokenSecret:    secret,
+		Storage:        storage,
+		Bridge:         bridge,
+		SandboxVlan:    sandboxVlan,
+		RestoreStorage: restoreStorage,
+		CryptRemote:    cryptRemote,
+		SandboxBridge:  sandboxBridge,
 	})
 	logProxmoxSource(configStore, "DB")
 }

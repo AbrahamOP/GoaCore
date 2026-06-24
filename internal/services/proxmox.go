@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"goacloud/internal/config"
 	"goacloud/internal/models"
 )
 
@@ -966,6 +967,47 @@ func (p *ProxmoxService) detectBridge(client *http.Client, baseURL, node, tokenI
 
 	slog.Warn("bridge auto-detect: no bridge found, using fallback", "fallback", fallback)
 	return fallback
+}
+
+// resolveRestoreStorage resolves the Proxmox storage a restore-test guest is
+// restored into, applying the SINGLE resolution order used everywhere in Jalon 2:
+//
+//	override (extra_json['restore_storage'] OR pm.Storage)  — already merged into the
+//	  ProxmoxConn snapshot before it reaches here (DB row > env layer)
+//	> auto-detection (detectStorage, fail-soft: content "images" for qemu, "rootdir"
+//	  for lxc — the same call CreateVM/CreateCT use)
+//	> defaultRestoreStorage  — the ONE literal of last resort
+//
+// pveType is "qemu" or "lxc"; anything else is treated as qemu (VM disks). The
+// auto-detection step never errors out: detectStorage already falls back internally
+// on any API failure, so this method always returns a non-empty storage name and a
+// down Proxmox simply yields the literal — restore is then attempted on a sane
+// default rather than refused. It is read-only (a couple of GETs).
+func (p *ProxmoxService) resolveRestoreStorage(pm config.ProxmoxConn, pveType string) string {
+	// 1+2. Explicit override wins: a dedicated restore_storage, else the creation
+	// storage already carried in the snapshot (DB extra_json or env, merged upstream).
+	if pm.RestoreStorage != "" {
+		return pm.RestoreStorage
+	}
+	if pm.Storage != "" {
+		return pm.Storage
+	}
+
+	// 3. Auto-detect against the live node (fail-soft inside detectStorage). CT
+	// rootfs needs a storage that supports container volumes ("rootdir").
+	wantContent := "images"
+	if pveType == "lxc" {
+		wantContent = "rootdir"
+	}
+	client, baseURL, node := p.restoreClient(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret, 10*time.Second)
+	detected := p.detectStorage(client, baseURL, node, pm.TokenID, pm.TokenSecret, wantContent)
+	if detected != "" {
+		return detected
+	}
+
+	// 4. Last resort (detectStorage already returns its own "local-lvm" fallback on
+	// failure, so this is belt-and-suspenders for an empty return).
+	return defaultRestoreStorage
 }
 
 // getGuestIP fetches the IP address of a running VM/CT.

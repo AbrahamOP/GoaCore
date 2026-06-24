@@ -125,39 +125,108 @@ func (c *ProxmoxChannel) run(op string, timeout time.Duration) (string, error) {
 	}
 }
 
+// cryptRemoteFallback is the hard default rclone remote for the off-site integrity
+// check when the caller passes an empty remote. It mirrors config.cryptRemoteFallback
+// (kept in sync; both are "gcrypt") so the channel is self-contained without
+// importing an unexported const.
+const cryptRemoteFallback = "gcrypt"
+
 // channelEnvelope is the common shell of every helper response.
 type channelEnvelope struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error"`
 }
 
-// DiskFree returns the thin pool data usage percentage and the local available
-// bytes, used as a pre-flight guard before a destructive restore.
-func (c *ProxmoxChannel) DiskFree() (thinDataPct float64, localAvailBytes int64, err error) {
+// DiskInfo is the backend-aware result of the disk pre-flight probe. Backend is the
+// detected dump-storage backend ("lvmthin" / "zfspool" / "dir" / "unknown"). The
+// thin-pool ceiling guard is meaningful ONLY when Backend=="lvmthin": on every other
+// backend ThinDataPct is 0 and MUST NOT be read as "0% used ⇒ always pass" — the
+// universal LocalAvailBytes floor is the guard there.
+type DiskInfo struct {
+	Backend         string
+	ThinDataPct     float64
+	ThinMetaPct     float64
+	LocalAvailBytes int64
+	// AvailProbe is the helper's df-probe outcome: "ok" when df succeeded (LocalAvailBytes
+	// is a real reading, possibly a genuine 0), "failed" when df errored (e.g. the resolved
+	// dump dir does not exist) so LocalAvailBytes=0 is a BLIND probe, not a real 0. An older
+	// helper omits the field → "" → treated as a blind probe only when nothing else guards.
+	AvailProbe string
+}
+
+// HasThinPoolCeiling reports whether the thin-pool data ceiling guard applies to
+// this reading: a usable lvmthin backend with a non-zero percentage. This is the
+// single decision point that prevents an absent/0 thin_data_pct on ZFS/dir from
+// being mistaken for "0% used".
+func (d DiskInfo) HasThinPoolCeiling() bool {
+	return d.Backend == "lvmthin" && d.ThinDataPct > 0
+}
+
+// IsBlindProbe reports whether the disk sonde gave NO usable guard at all: the
+// df probe failed (AvailProbe=="failed") OR it returned 0 bytes on a backend that
+// offers no thin-pool ceiling. In that state both the avail floor (skipped on a 0)
+// and the thin-pool ceiling (no lvmthin reading) are inert, so a destructive restore
+// would proceed with zero disk protection — which the restore engine must refuse
+// rather than fail-open. This is the Go counterpart of the helper's lvs/df fail-soft:
+// the helper degrades to "unknown" without aborting, and the engine turns a totally
+// blind reading into a hard refusal.
+func (d DiskInfo) IsBlindProbe() bool {
+	// Any usable guard makes the probe non-blind: a thin-pool ceiling, or a positive
+	// avail floor (a real number we can compare against minLocalAvailBytes).
+	if d.HasThinPoolCeiling() || d.LocalAvailBytes > 0 {
+		return false
+	}
+	// No ceiling AND no positive avail. Either df explicitly errored (AvailProbe=="failed",
+	// so the 0 is a blind reading) or the backend simply offers nothing to guard on —
+	// in both cases there is no effective disk guard, so treat it as blind.
+	return true
+}
+
+// DiskFree returns the backend-aware disk pre-flight reading used as a guard before
+// a destructive restore. The helper always emits a `backend` field; an older helper
+// without it yields Backend=="" → the ceiling guard is skipped (HasThinPoolCeiling
+// is false) and only the universal avail floor applies, which is the safe default.
+func (c *ProxmoxChannel) DiskFree() (DiskInfo, error) {
 	raw, err := c.run("disk-free", 30*time.Second)
 	if err != nil {
-		return 0, 0, err
+		return DiskInfo{}, err
 	}
 	var resp struct {
 		channelEnvelope
+		Backend         string  `json:"backend"`
 		ThinDataPct     float64 `json:"thin_data_pct"`
 		ThinMetaPct     float64 `json:"thin_meta_pct"`
 		LocalAvailBytes int64   `json:"local_avail_bytes"`
+		AvailProbe      string  `json:"avail_probe"`
 	}
 	if jerr := json.Unmarshal([]byte(raw), &resp); jerr != nil {
-		return 0, 0, fmt.Errorf("proxmox channel: decode disk-free %q: %w", raw, jerr)
+		return DiskInfo{}, fmt.Errorf("proxmox channel: decode disk-free %q: %w", raw, jerr)
 	}
 	if !resp.OK {
-		return 0, 0, fmt.Errorf("proxmox channel: disk-free not ok: %s", resp.Error)
+		return DiskInfo{}, fmt.Errorf("proxmox channel: disk-free not ok: %s", resp.Error)
 	}
-	return resp.ThinDataPct, resp.LocalAvailBytes, nil
+	return DiskInfo{
+		Backend:         resp.Backend,
+		ThinDataPct:     resp.ThinDataPct,
+		ThinMetaPct:     resp.ThinMetaPct,
+		LocalAvailBytes: resp.LocalAvailBytes,
+		AvailProbe:      resp.AvailProbe,
+	}, nil
 }
 
 // Cryptcheck asks the helper to verify the off-site (crypt) archive integrity for
-// a VMID. Returns ok and a human-readable detail.
-func (c *ProxmoxChannel) Cryptcheck(vmid int) (ok bool, detail string, err error) {
+// a VMID against a specific rclone remote. The remote is no longer hardcoded host-
+// side ("gcrypt"): the engine resolves it (DB extra_json / env / hard default) and
+// passes it here so a PME whose crypt remote is not named "gcrypt" is supported. An
+// empty remote floors to the hard default so an old caller still works. The helper
+// re-validates the remote host-side against `rclone listremotes` (the trust never
+// moves app→host). Returns ok and a human-readable detail.
+func (c *ProxmoxChannel) Cryptcheck(vmid int, remote string) (ok bool, detail string, err error) {
+	if remote == "" {
+		remote = cryptRemoteFallback
+	}
 	// cryptcheck can stream/verify a large archive — give it a generous timeout.
-	raw, err := c.run(fmt.Sprintf("cryptcheck %d", vmid), 200*time.Second)
+	raw, err := c.run(fmt.Sprintf("cryptcheck %d %s", vmid, remote), 200*time.Second)
 	if err != nil {
 		return false, "", err
 	}

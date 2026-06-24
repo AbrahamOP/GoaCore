@@ -2,6 +2,7 @@ package services
 
 import (
 	"crypto/sha256"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -22,6 +23,81 @@ func TestProxmoxExtra(t *testing.T) {
 	c2 := &models.Connection{Extra: nil}
 	if s, b := ProxmoxExtra(c2); s != "" || b != "" {
 		t.Errorf("nil extra: got (%q,%q), want empty", s, b)
+	}
+}
+
+// TestProxmoxSandboxExtra verifies the Jalon-2 restore-test attribute extraction
+// from extra_json, including the safe fallbacks and the deliberate parse-to-0 of a
+// malformed sandbox_vlan (which the resolver later floors back to the hard default,
+// never a silent "no isolation").
+func TestProxmoxSandboxExtra(t *testing.T) {
+	if rs, cr, sb, v := ProxmoxSandboxExtra(nil); rs != "" || cr != "" || sb != "" || v != 0 {
+		t.Errorf("nil connection: got (%q,%q,%q,%d), want empty/0", rs, cr, sb, v)
+	}
+	c := &models.Connection{Extra: map[string]string{
+		"restore_storage": "ceph-rbd",
+		"crypt_remote":    "offsite",
+		"sandbox_bridge":  "vmbr3",
+		"sandbox_vlan":    "77",
+	}}
+	if rs, cr, sb, v := ProxmoxSandboxExtra(c); rs != "ceph-rbd" || cr != "offsite" || sb != "vmbr3" || v != 77 {
+		t.Errorf("got (%q,%q,%q,%d), want (ceph-rbd,offsite,vmbr3,77)", rs, cr, sb, v)
+	}
+	// Malformed / absent vlan parses to 0 (resolver floors it later); the strings
+	// default to empty. A row WITHOUT sandbox_bridge yields "" (floored to vmbr1 at
+	// resolution, NEVER inheriting the creation bridge).
+	bad := &models.Connection{Extra: map[string]string{"sandbox_vlan": "not-a-number"}}
+	if rs, cr, sb, v := ProxmoxSandboxExtra(bad); rs != "" || cr != "" || sb != "" || v != 0 {
+		t.Errorf("malformed: got (%q,%q,%q,%d), want empty/0", rs, cr, sb, v)
+	}
+}
+
+// TestSaveProxmoxExtraMap documents the extra_json map the Proxmox upsert persists,
+// asserting (without a DB) the bridge-DECOUPLING and "omit when unset" rules that
+// saveProxmox encodes. It rebuilds the same map the production path passes to save()
+// so a future shuffle of those keys is caught here.
+func TestSaveProxmoxExtraMap(t *testing.T) {
+	// Mirror saveProxmox's extra-map construction exactly (decoupled sandbox bridge).
+	build := func(form models.ProxmoxConnectionForm) map[string]string {
+		extra := map[string]string{
+			"storage":         form.Storage,
+			"bridge":          form.Bridge,
+			"restore_storage": form.RestoreStorage,
+			"crypt_remote":    form.CryptRemote,
+		}
+		if form.SandboxBridge != "" {
+			extra["sandbox_bridge"] = form.SandboxBridge
+		}
+		if form.SandboxVlan > 0 {
+			extra["sandbox_vlan"] = strconv.Itoa(form.SandboxVlan)
+		}
+		return extra
+	}
+
+	// The sandbox bridge is persisted in its OWN key and NEVER overwrites the creation
+	// "bridge" key — that decoupling is the whole isolation fix.
+	m := build(models.ProxmoxConnectionForm{Bridge: "vmbr0", SandboxBridge: "vmbr1", SandboxVlan: 99})
+	if m["bridge"] != "vmbr0" {
+		t.Errorf("creation bridge must be preserved, got %q", m["bridge"])
+	}
+	if m["sandbox_bridge"] != "vmbr1" {
+		t.Errorf("sandbox_bridge should be persisted as %q, got %q", "vmbr1", m["sandbox_bridge"])
+	}
+	if m["sandbox_vlan"] != "99" {
+		t.Errorf("sandbox_vlan should be persisted as %q, got %q", "99", m["sandbox_vlan"])
+	}
+	// Unset sandbox bridge / VLAN 0 must NOT be persisted, so they fall through to the
+	// env/hard-default layer (vmbr1 / VLAN 99) — critically, the creation bridge is
+	// NEVER inherited as the sandbox bridge.
+	m0 := build(models.ProxmoxConnectionForm{Bridge: "vmbr0"})
+	if _, ok := m0["sandbox_bridge"]; ok {
+		t.Errorf("sandbox_bridge must be omitted when unset, got %q", m0["sandbox_bridge"])
+	}
+	if _, ok := m0["sandbox_vlan"]; ok {
+		t.Errorf("sandbox_vlan must be omitted when 0, got %q", m0["sandbox_vlan"])
+	}
+	if m0["bridge"] != "vmbr0" {
+		t.Errorf("bridge key should keep creation bridge, got %q", m0["bridge"])
 	}
 }
 

@@ -25,6 +25,26 @@ type Config struct {
 	ProxmoxStorage string
 	ProxmoxBridge  string
 
+	// Restore-test sandbox tuning (frozen-at-boot env layer of the resolution
+	// order DB extra_json > env > auto-detect > literal). All have safe defaults.
+	//
+	// SandboxVlan is the isolation VLAN forced on every sandbox NIC before boot
+	// (a routed-nowhere cul-de-sac on the firewall). RestoreStorage overrides the
+	// storage a restore-test guest is restored into (empty = pm.Storage then
+	// auto-detect). DefaultBackupStorage is the fallback Proxmox storage scanned
+	// for vzdump archives when a target carries no explicit storage. DiskCeilingPct
+	// and MinLocalAvailGiB are the disk pre-flight guards.
+	SandboxVlan          int
+	RestoreStorage       string
+	DefaultBackupStorage string
+	DiskCeilingPct       float64
+	MinLocalAvailGiB     int
+	// SandboxBridge is the bridge sandbox NICs are forced onto (coupled to SandboxVlan).
+	// Empty = the hard vmbr1 fallback at resolution time. It is DELIBERATELY distinct
+	// from ProxmoxBridge (the creation bridge) so a prod creation bridge is never
+	// inherited as the isolation bridge.
+	SandboxBridge string
+
 	// Wazuh API
 	WazuhAPIURL   string
 	WazuhUser     string
@@ -71,16 +91,25 @@ func Load() *Config {
 	cfg := &Config{
 		// DB defaults are dev-only conveniences; production deployments inject
 		// DB_USER/DB_PASS via the compose/env file (see docker-compose-dev.yml).
-		DBUser:                getEnv("DB_USER", "root"),
-		DBPass:                getEnv("DB_PASS", "root"),
-		DBHost:                getEnv("DB_HOST", "127.0.0.1:3306"),
-		DBName:                getEnv("DB_NAME", "goacloud"),
-		ProxmoxURL:            getEnv("PROXMOX_URL", ""),
-		ProxmoxNode:           getEnv("PROXMOX_NODE", "pve"),
-		ProxmoxTokenID:        getEnv("PROXMOX_TOKEN_ID", ""),
-		ProxmoxTokenSecret:    getEnv("PROXMOX_TOKEN_SECRET", ""),
-		ProxmoxStorage:        getEnv("PROXMOX_STORAGE", ""),
-		ProxmoxBridge:         getEnv("PROXMOX_BRIDGE", ""),
+		DBUser:             getEnv("DB_USER", "root"),
+		DBPass:             getEnv("DB_PASS", "root"),
+		DBHost:             getEnv("DB_HOST", "127.0.0.1:3306"),
+		DBName:             getEnv("DB_NAME", "goacloud"),
+		ProxmoxURL:         getEnv("PROXMOX_URL", ""),
+		ProxmoxNode:        getEnv("PROXMOX_NODE", "pve"),
+		ProxmoxTokenID:     getEnv("PROXMOX_TOKEN_ID", ""),
+		ProxmoxTokenSecret: getEnv("PROXMOX_TOKEN_SECRET", ""),
+		ProxmoxStorage:     getEnv("PROXMOX_STORAGE", ""),
+		ProxmoxBridge:      getEnv("PROXMOX_BRIDGE", ""),
+		// VLAN 1-4094, default 99. A 0/out-of-range env yields the bounded default;
+		// the resolver still floors a 0 from any layer back to 99 (hard fallback).
+		SandboxVlan:          getEnvIntBounded("GOABACKUP_SANDBOX_VLAN", 99, 1, 4094),
+		RestoreStorage:       getEnv("GOABACKUP_RESTORE_STORAGE", ""),
+		SandboxBridge:        getEnv("GOABACKUP_SANDBOX_BRIDGE", ""),
+		DefaultBackupStorage: getEnv("GOABACKUP_DEFAULT_STORAGE", "local"),
+		// Ceiling bounded <=95 (a 95%+ thin pool is already critical); default 85.
+		DiskCeilingPct:        float64(getEnvIntBounded("GOABACKUP_DISK_CEILING_PCT", 85, 1, 95)),
+		MinLocalAvailGiB:      getEnvIntBounded("GOABACKUP_MIN_LOCAL_AVAIL_GIB", 5, 0, 1024),
 		WazuhAPIURL:           getEnv("WAZUH_API_URL", ""),
 		WazuhUser:             getEnv("WAZUH_USER", ""),
 		WazuhPassword:         getEnv("WAZUH_PASSWORD", ""),

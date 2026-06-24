@@ -20,10 +20,27 @@ const (
 	sandboxVMIDMax = 9599
 )
 
+// defaultRestoreStorage is the ONE storage literal of last resort for a
+// restore-test guest, used only after the resolution order (override > pm.Storage >
+// auto-detection) yielded nothing. The nominal path now passes a resolved storage
+// from resolveRestoreStorage; this const is the floor, not the default.
+const defaultRestoreStorage = "local-lvm"
+
+// defaultSandboxBridge is the hard fallback bridge for sandbox interfaces. The
+// isolation bridge is NEVER freely auto-detected (detectBridge returns the first
+// Linux bridge, often vmbr0 = prod): the resolver uses an explicit override or
+// pm.Bridge, and only falls back to this literal — chosen because the HomeLab
+// isolation VLAN lives on vmbr1, preserving the pre-Jalon-2 posture.
+const defaultSandboxBridge = "vmbr1"
+
 // isSandboxVMID reports whether vmid is inside the disposable sandbox range
-// [9500, 9599]. It is the guard called before every destructive Proxmox call
-// (restore, network reconfigure, power, destroy). If it returns false, the caller
-// MUST refuse to issue the API request.
+// [9500, 9599]. It is the guard checked before every destructive Proxmox call on
+// the restore path. RestoreBackup, SetGuestNetworkVlan and DestroyGuest enforce it
+// INTERNALLY (they refuse out-of-range VMIDs themselves). PowerAction is generic and
+// dual-use (the dashboard power handler also calls it), so on the restore path the
+// guard is carried by the engine's sandboxPowerAction wrapper, which calls this
+// before forwarding. If it returns false, the caller MUST refuse to issue the
+// request.
 func isSandboxVMID(vmid int) bool {
 	return vmid >= sandboxVMIDMin && vmid <= sandboxVMIDMax
 }
@@ -56,7 +73,9 @@ func (p *ProxmoxService) RestoreBackup(rawURL, node, tokenID, secret, pveType, a
 		return "", errNotSandbox("restore", targetVMID)
 	}
 	if storage == "" {
-		storage = "local-lvm"
+		// The caller now passes a value resolved by resolveRestoreStorage; this is
+		// only the floor for a programmatic empty call (defense in depth).
+		storage = defaultRestoreStorage
 	}
 
 	client, baseURL, targetNode := p.restoreClient(rawURL, node, tokenID, secret, 60*time.Second)
@@ -126,10 +145,21 @@ func (p *ProxmoxService) RestoreBackup(rawURL, node, tokenID, secret, pveType, a
 // If the guest has no network interface at all, that is not an error — a guest
 // without a NIC is isolated by definition.
 //
+// bridge is the DEDICATED sandbox bridge resolved by the caller (pm.SandboxBridgeName()
+// — its own attribute, hard vmbr1 fallback, NEVER the creation bridge pm.Bridge). It
+// is COUPLED to vlanTag: the isolation holds only if every NIC is forced onto the
+// isolation VLAN AND onto a bridge that actually carries that VLAN — so the caller
+// resolves the pair together and passes both here. An empty bridge floors to
+// defaultSandboxBridge rather than ever emitting a bridgeless (or auto-prod-bridge)
+// interface.
+//
 // SAFETY: refuses immediately (no API call) if vmid is outside the sandbox range.
-func (p *ProxmoxService) SetGuestNetworkVlan(rawURL, node, tokenID, secret, pveType string, vmid, vlanTag int) error {
+func (p *ProxmoxService) SetGuestNetworkVlan(rawURL, node, tokenID, secret, pveType string, vmid, vlanTag int, bridge string) error {
 	if !isSandboxVMID(vmid) {
 		return errNotSandbox("set network vlan", vmid)
+	}
+	if bridge == "" {
+		bridge = defaultSandboxBridge
 	}
 
 	client, baseURL, targetNode := p.restoreClient(rawURL, node, tokenID, secret, 15*time.Second)
@@ -170,7 +200,7 @@ func (p *ProxmoxService) SetGuestNetworkVlan(rawURL, node, tokenID, secret, pveT
 	// 2. Force the isolation tag on every interface, in a single PUT.
 	form := url.Values{}
 	for key, cur := range currentNets {
-		form.Set(key, buildSandboxNetN(cur, pveType, vlanTag))
+		form.Set(key, buildSandboxNetN(cur, pveType, vlanTag, bridge))
 	}
 	reqPut, _ := http.NewRequest("PUT", cfgURL, strings.NewReader(form.Encode()))
 	auth(reqPut)
@@ -207,15 +237,22 @@ func isNetKey(key string) bool {
 }
 
 // buildSandboxNetN derives the netN string to apply to a single sandbox guest
-// interface, forcing the given VLAN tag. It preserves the existing
-// name/bridge/model fields when the current line is parseable, and otherwise falls
-// back to a minimal definition. It is applied to every netN key of the guest.
-func buildSandboxNetN(current, pveType string, vlanTag int) string {
+// interface, forcing the given VLAN tag onto the given (sandbox) bridge. It
+// preserves the existing name/model fields when the current line is parseable, but
+// always REWRITES the bridge to the sandbox bridge — a restored prod NIC must never
+// keep its production bridge, even on the isolation VLAN. It is applied to every
+// netN key of the guest. bridge is resolved by the caller (pm.SandboxBridgeName() —
+// the dedicated sandbox attribute, never the creation bridge; hard vmbr1 fallback)
+// and is COUPLED to vlanTag.
+func buildSandboxNetN(current, pveType string, vlanTag int, bridge string) string {
+	if bridge == "" {
+		bridge = defaultSandboxBridge
+	}
 	if current == "" {
 		if pveType == "lxc" {
-			return fmt.Sprintf("name=eth0,bridge=vmbr1,tag=%d", vlanTag)
+			return fmt.Sprintf("name=eth0,bridge=%s,tag=%d", bridge, vlanTag)
 		}
-		return fmt.Sprintf("virtio,bridge=vmbr1,tag=%d", vlanTag)
+		return fmt.Sprintf("virtio,bridge=%s,tag=%d", bridge, vlanTag)
 	}
 
 	// net0 is a comma-separated list of key=value pairs, except QEMU's first
@@ -238,14 +275,14 @@ func buildSandboxNetN(current, pveType string, vlanTag int) string {
 			out = append(out, fmt.Sprintf("tag=%d", vlanTag))
 			tagSet = true
 		case "bridge":
-			out = append(out, "bridge=vmbr1")
+			out = append(out, "bridge="+bridge)
 			hasBridge = true
 		default:
 			out = append(out, seg)
 		}
 	}
 	if !hasBridge {
-		out = append(out, "bridge=vmbr1")
+		out = append(out, "bridge="+bridge)
 	}
 	if !tagSet {
 		out = append(out, fmt.Sprintf("tag=%d", vlanTag))

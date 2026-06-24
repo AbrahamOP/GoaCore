@@ -37,6 +37,19 @@ type ProxmoxConnectionForm struct {
 	TokenSecret string
 	Storage     string
 	Bridge      string
+
+	// Restore-test "Réglages avancés" (Jalon 2), persisted in extra_json beside
+	// storage/bridge — none are secrets. SandboxVlan is the isolation VLAN forced on
+	// sandbox guests (0/empty ⇒ hard fallback 99 at resolution time). RestoreStorage
+	// overrides the storage a restore-test guest is restored into (empty ⇒ pm.Storage
+	// then auto-detect). SandboxBridge is the bridge that must carry the isolation
+	// VLAN (empty ⇒ pm.Bridge then the hard vmbr1 fallback; never freely
+	// auto-detected, to avoid landing the sandbox on a prod bridge). CryptRemote is
+	// the rclone remote the N1 off-site check targets (empty ⇒ hard default gcrypt).
+	SandboxVlan    int
+	RestoreStorage string
+	SandboxBridge  string
+	CryptRemote    string
 }
 
 // WazuhConnectionForm binds the onboarding POST body for the Wazuh Manager API.

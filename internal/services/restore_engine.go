@@ -2,25 +2,32 @@ package services
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 
+	"goacloud/internal/config"
 	"goacloud/internal/models"
 )
 
 // Restore-test tuning constants.
+//
+// The isolation VLAN and the restore storage are NO LONGER constants: they are
+// resolved per-run from the live Proxmox snapshot (pm.SandboxVlanTag() and
+// resolveRestoreStorage) so a PME can point the restore test at its own storage /
+// isolation VLAN without a code change. The disk guards keep their compiled
+// defaults below but are overridable via env (see BackupService.diskDataPctCeiling
+// / minLocalAvailBytes, seeded in NewBackupService).
 const (
-	restoreVlanTag        = 99               // isolation VLAN for sandbox guests
-	restoreTaskTimeout    = 20 * time.Minute // max wait for a restore task
-	restorePollInterval   = 5 * time.Second
-	bootSettleDelay       = 25 * time.Second       // grace period after "running" before probing
-	bootWaitTimeout       = 3 * time.Minute        // max wait for the guest to reach "running"
-	diskDataPctCeiling    = 85.0                   // refuse N2/N3 above this thin-pool data usage
-	minLocalAvailBytes    = 5 * 1024 * 1024 * 1024 // 5 GiB headroom required on local storage
-	sandboxRestoreStorage = "local-lvm"
+	restoreTaskTimeout        = 20 * time.Minute // max wait for a restore task
+	restorePollInterval       = 5 * time.Second
+	bootSettleDelay           = 25 * time.Second       // grace period after "running" before probing
+	bootWaitTimeout           = 3 * time.Minute        // max wait for the guest to reach "running"
+	defaultDiskDataPctCeiling = 85.0                   // refuse N2/N3 above this thin-pool data usage
+	defaultMinLocalAvailBytes = 5 * 1024 * 1024 * 1024 // 5 GiB headroom required on local storage
 )
 
 // ErrRestoreTestInProgress is returned when a restore test is already running for a target.
@@ -114,7 +121,21 @@ func (s *BackupService) runLevelN1(testID int, t models.BackupTarget, vmid int, 
 		s.notifyRestoreTest(t.Name, 0, "N1", "failed", "canal non configuré")
 		return
 	}
-	ok, detail, err := s.channel.Cryptcheck(vmid)
+	// Resolve the off-site remote for THIS target. In a multi-remote deployment each
+	// target may have been pushed to a different remote, so the cryptcheck must run
+	// against the remote the target was actually pushed to — deriving it from the
+	// connection-global attribute would cryptcheck the wrong remote and report a silent
+	// false negative. Precedence: the remote of the target's latest off-site run >
+	// connection attribute (DB extra_json > env > hard default gcrypt). The helper
+	// re-validates whatever we pass host-side against `rclone listremotes`.
+	remote := s.latestPushedRemote(t.ID)
+	if remote == "" {
+		remote = s.cfgStore.ProxmoxSnapshot().CryptCheckRemote()
+		logf("remote off-site: %s (attribut connexion — aucun push enregistré pour cette cible)", remote)
+	} else {
+		logf("remote off-site: %s (dernier push de la cible)", remote)
+	}
+	ok, detail, err := s.channel.Cryptcheck(vmid, remote)
 	if err != nil {
 		logf("échec cryptcheck: %v", err)
 		s.finishTest(testID, "failed", 0, 0, logs.String())
@@ -140,6 +161,17 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	// closes over this snapshot deliberately so cleanup hits the same host the
 	// restore wrote to.
 	pm := s.cfgStore.ProxmoxSnapshot()
+	// Resolve the sandbox isolation parameters ONCE from this coherent snapshot
+	// (single resolution order: DB extra_json > env > literal, all already merged into
+	// pm by the config layer). vlanTag floors a 0/empty back to the hard 99; the
+	// sandbox bridge is the DEDICATED pm.SandboxBridge (its own extra_json key / env),
+	// flooring an empty value to the hard vmbr1 fallback — NEVER pm.Bridge (the
+	// creation bridge, often vmbr0=prod, which may not trunk the isolation VLAN). The
+	// (bridge,vlan) pair is COUPLED for isolation correctness and never freely
+	// auto-detected. The restore storage is resolved later (needs the elected archive's
+	// pveType).
+	vlanTag := pm.SandboxVlanTag()
+	sandboxBridge := pm.SandboxBridgeName()
 	fail := func(detail string) {
 		s.finishTest(testID, "failed", 0, 0, logs.String())
 		s.notifyRestoreTest(t.Name, 0, level, "failed", detail)
@@ -151,22 +183,38 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 		return
 	}
 
-	// 1. Disk pre-flight guard.
-	dataPct, avail, err := s.channel.DiskFree()
+	// 1. Disk pre-flight guard. Thresholds come from the BackupService (env-overridable,
+	// compiled defaults). The thin-pool ceiling guard fires ONLY on a usable lvmthin
+	// reading (DiskInfo.HasThinPoolCeiling): a backend without a thin_data_pct (ZFS/dir
+	// → 0 from the helper, or an old helper with no backend field) must NOT be read as
+	// "0% used ⇒ always pass" — the universal avail floor still applies below.
+	disk, err := s.channel.DiskFree()
 	if err != nil {
 		logf("échec contrôle disque: %v", err)
 		fail(err.Error())
 		return
 	}
-	logf("disque: thin_data=%.1f%% local_avail=%s", dataPct, humanSize(avail))
-	if dataPct > diskDataPctCeiling {
-		logf("garde-fou disque: thin_data %.1f%% > %.1f%% — annulation", dataPct, diskDataPctCeiling)
-		fail(fmt.Sprintf("disque saturé (thin_data %.1f%%)", dataPct))
+	logf("disque: backend=%s thin_data=%.1f%% local_avail=%s avail_probe=%s", disk.Backend, disk.ThinDataPct, humanSize(disk.LocalAvailBytes), disk.AvailProbe)
+	// Fail-SAFE on a totally blind sonde: if there is neither a usable thin-pool ceiling
+	// nor a usable avail floor (df errored, or returned 0 on a non-lvmthin backend), NO
+	// disk guard is effective. A destructive N2/N3 restore must NOT proceed unprotected —
+	// refuse rather than fail-open (the Go counterpart of the helper's lvs/df fail-soft).
+	if disk.IsBlindProbe() {
+		logf("garde-fou disque: sonde aveugle (backend=%s avail_probe=%s local_avail=%s) — aucune garde disque effective, annulation",
+			disk.Backend, disk.AvailProbe, humanSize(disk.LocalAvailBytes))
+		slog.Warn("restore-test: disk probe blind, refusing destructive restore",
+			"test_id", testID, "backend", disk.Backend, "avail_probe", disk.AvailProbe, "local_avail", disk.LocalAvailBytes)
+		fail("sonde disque aveugle (aucune garde disponible) — restauration refusée par sûreté")
 		return
 	}
-	if avail > 0 && avail < minLocalAvailBytes {
-		logf("garde-fou disque: local_avail %s < %s — annulation", humanSize(avail), humanSize(minLocalAvailBytes))
-		fail(fmt.Sprintf("espace insuffisant (%s disponibles)", humanSize(avail)))
+	if disk.HasThinPoolCeiling() && disk.ThinDataPct > s.diskDataPctCeiling {
+		logf("garde-fou disque: thin_data %.1f%% > %.1f%% — annulation", disk.ThinDataPct, s.diskDataPctCeiling)
+		fail(fmt.Sprintf("disque saturé (thin_data %.1f%%)", disk.ThinDataPct))
+		return
+	}
+	if disk.LocalAvailBytes > 0 && disk.LocalAvailBytes < s.minLocalAvailBytes {
+		logf("garde-fou disque: local_avail %s < %s — annulation", humanSize(disk.LocalAvailBytes), humanSize(s.minLocalAvailBytes))
+		fail(fmt.Sprintf("espace insuffisant (%s disponibles)", humanSize(disk.LocalAvailBytes)))
 		return
 	}
 
@@ -202,6 +250,12 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	}
 	logf("archive: %s (type %s)", archive, pveType)
 
+	// Resolve the restore storage now that the elected archive's pveType is known
+	// (qemu→images, lxc→rootdir), using the same snapshot pm captured above so the
+	// whole op stays coherent under a hot-reload.
+	restoreStorage := s.proxmox.resolveRestoreStorage(pm, pveType)
+	logf("storage de restauration: %s", restoreStorage)
+
 	// Persist the sandbox VMID early so a crash mid-test still records which slot
 	// was used (and the defer below guarantees its destruction regardless).
 	s.setTestSandbox(testID, sandboxVMID)
@@ -232,7 +286,7 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	rtoStart := time.Now()
 	logf("restauration de l'archive vers le sandbox %d…", sandboxVMID)
 	upid, err := s.proxmox.RestoreBackup(pm.URL, pm.Node, pm.TokenID,
-		pm.TokenSecret, pveType, archive, sandboxVMID, sandboxRestoreStorage)
+		pm.TokenSecret, pveType, archive, sandboxVMID, restoreStorage)
 	if err != nil {
 		logf("échec lancement restauration: %v", err)
 		fail(err.Error())
@@ -252,18 +306,21 @@ func (s *BackupService) runLevelN2N3(testID int, t models.BackupTarget, vmid int
 	}
 	logf("restauration terminée (OK)")
 
-	// 6. Force the sandbox onto the isolation VLAN BEFORE starting it.
+	// 6. Force the sandbox onto the isolation VLAN + sandbox bridge BEFORE starting
+	// it (the resolved pair, coupled for isolation correctness).
 	if err := s.proxmox.SetGuestNetworkVlan(pm.URL, pm.Node, pm.TokenID,
-		pm.TokenSecret, pveType, sandboxVMID, restoreVlanTag); err != nil {
-		logf("échec isolation réseau VLAN %d: %v", restoreVlanTag, err)
+		pm.TokenSecret, pveType, sandboxVMID, vlanTag, sandboxBridge); err != nil {
+		logf("échec isolation réseau VLAN %d (bridge %s): %v", vlanTag, sandboxBridge, err)
 		fail("isolation réseau: " + err.Error())
 		return
 	}
-	logf("réseau forcé sur VLAN %d", restoreVlanTag)
+	logf("réseau forcé sur VLAN %d (bridge %s)", vlanTag, sandboxBridge)
 
-	// 7. Start the sandbox and wait until it is running.
-	if err := s.proxmox.PowerAction(pm.URL, pm.Node, pm.TokenID,
-		pm.TokenSecret, pveType, strconv.Itoa(sandboxVMID), "start"); err != nil {
+	// 7. Start the sandbox and wait until it is running. Routed through
+	// sandboxPowerAction so the isSandboxVMID guard is enforced INSIDE the restore
+	// engine (defense in depth), like restore/network/destroy — PowerAction itself
+	// stays generic for the dashboard handler.
+	if err := s.sandboxPowerAction(pm, pveType, sandboxVMID, "start"); err != nil {
 		logf("échec démarrage sandbox: %v", err)
 		fail("démarrage: " + err.Error())
 		return
@@ -366,6 +423,21 @@ func (s *BackupService) pickFreeSandboxVMIDWith(ping func(int) (string, error), 
 	return 0, fmt.Errorf("aucun VMID sandbox libre dans [%d,%d]", sandboxVMIDMin, sandboxVMIDMax)
 }
 
+// sandboxPowerAction is the restore engine's guarded wrapper around the generic
+// ProxmoxService.PowerAction: it REFUSES (no API call) any VMID outside the sandbox
+// range, then forwards to PowerAction. PowerAction is dual-use (the dashboard power
+// handler also calls it) so it stays generic; this wrapper carries the sandbox
+// invariant for the restore path, exactly like RestoreBackup/SetGuestNetworkVlan/
+// DestroyGuest do internally — so a future refactor that powers a different VMID from
+// the restore engine is caught here rather than silently acting on a prod guest.
+func (s *BackupService) sandboxPowerAction(pm config.ProxmoxConn, pveType string, vmid int, action string) error {
+	if !isSandboxVMID(vmid) {
+		return errNotSandbox("power", vmid)
+	}
+	return s.proxmox.PowerAction(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret,
+		pveType, strconv.Itoa(vmid), action)
+}
+
 // releaseSandboxVMID frees an atomically-reserved sandbox VMID. It is idempotent
 // and safe to call from the destroy defer regardless of how the test ended.
 func (s *BackupService) releaseSandboxVMID(vmid int) {
@@ -397,7 +469,7 @@ func (s *BackupService) waitSandboxRunning(vmid int, logf func(string, ...any)) 
 func (s *BackupService) latestArchiveVolID(vmid int, storage string) (string, string, int, bool) {
 	pm := s.cfgStore.ProxmoxSnapshot()
 	if storage == "" {
-		storage = defaultBackupStorage
+		storage = s.defaultBackupStorage
 	}
 	entries, err := s.proxmox.ListBackups(pm.URL, pm.Node, pm.TokenID,
 		pm.TokenSecret, storage)
@@ -420,6 +492,33 @@ func (s *BackupService) latestArchiveVolID(vmid int, storage string) (string, st
 		return "", "", 0, false
 	}
 	return best.VolID, best.Type, best.VMID, true
+}
+
+// latestPushedRemote returns the rclone remote of the target's most recent off-site
+// backup run, or "" when none exists. It is the per-target source for the N1
+// cryptcheck remote so a multi-remote deployment checks each target against the
+// remote it was actually pushed to (not a single connection-global remote). It
+// prefers a run whose push succeeded (push_status='ok'), falling back to the latest
+// run that merely carries a non-empty remote, so a freshly-pushed-but-unverified
+// target still cryptchecks the right place. Best-effort: any DB error yields "" and
+// the caller falls back to the connection attribute.
+func (s *BackupService) latestPushedRemote(targetID int) string {
+	if s.db == nil {
+		return ""
+	}
+	var remote sql.NullString
+	err := s.db.QueryRow(
+		`SELECT remote FROM backup_runs
+		 WHERE target_id = ? AND remote IS NOT NULL AND remote <> ''
+		 ORDER BY (push_status = 'ok') DESC, id DESC
+		 LIMIT 1`, targetID).Scan(&remote)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Error("restore-test: latest pushed remote lookup", "target_id", targetID, "error", err)
+		}
+		return ""
+	}
+	return remote.String
 }
 
 // --- persistence helpers ---

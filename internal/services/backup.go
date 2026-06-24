@@ -15,8 +15,10 @@ import (
 	"goacloud/internal/models"
 )
 
-// defaultBackupStorage is the Proxmox storage scanned for vzdump archives.
-const defaultBackupStorage = "local"
+// fallbackBackupStorage is the compiled default Proxmox storage scanned for vzdump
+// archives when neither the target nor GOABACKUP_DEFAULT_STORAGE overrides it. The
+// effective value is BackupService.defaultBackupStorage, seeded in NewBackupService.
+const fallbackBackupStorage = "local"
 
 // ErrBackupInProgress is returned when a backup is already running for a target.
 var ErrBackupInProgress = errors.New("a backup is already running for this target")
@@ -130,19 +132,52 @@ type BackupService struct {
 	testMu       sync.Mutex
 	testInFlight map[int]bool
 	sandboxInUse map[int]bool
+
+	// Disk pre-flight thresholds for the restore-test engine, seeded once at
+	// construction from env (compiled defaults otherwise). They are static tuning,
+	// not a hot-reloadable connection attribute, so they live on the service rather
+	// than in the Proxmox snapshot.
+	diskDataPctCeiling float64
+	minLocalAvailBytes int64
+
+	// defaultBackupStorage is the fallback Proxmox storage scanned for vzdump
+	// archives when a target carries no explicit storage (env-overridable). Distinct
+	// from the restore storage — this is a SCAN default, not a restore destination.
+	defaultBackupStorage string
 }
 
 // NewBackupService creates a BackupService. The *config.ConfigStore is the live
 // source of the Proxmox connection: every method that talks to Proxmox re-reads a
 // coherent snapshot (cfgStore.ProxmoxSnapshot()) at its head, so an in-app
 // re-onboarding is picked up by in-flight and future runs without a restart.
-func NewBackupService(db *sql.DB, proxmox *ProxmoxService, cfgStore *config.ConfigStore) *BackupService {
+//
+// cfg supplies the static (non-hot-reloadable) restore-test tuning: the disk
+// pre-flight thresholds and the vzdump scan-default storage, each already bounded /
+// defaulted by config.Load(). It may be nil (tests) → compiled defaults apply.
+func NewBackupService(db *sql.DB, proxmox *ProxmoxService, cfgStore *config.ConfigStore, cfg *config.Config) *BackupService {
+	ceiling := defaultDiskDataPctCeiling
+	minAvail := int64(defaultMinLocalAvailBytes)
+	scanStorage := fallbackBackupStorage
+	if cfg != nil {
+		if cfg.DiskCeilingPct > 0 {
+			ceiling = cfg.DiskCeilingPct
+		}
+		if cfg.MinLocalAvailGiB >= 0 {
+			minAvail = int64(cfg.MinLocalAvailGiB) * 1024 * 1024 * 1024
+		}
+		if cfg.DefaultBackupStorage != "" {
+			scanStorage = cfg.DefaultBackupStorage
+		}
+	}
 	return &BackupService{
-		db:           db,
-		proxmox:      proxmox,
-		cfgStore:     cfgStore,
-		testInFlight: make(map[int]bool),
-		sandboxInUse: make(map[int]bool),
+		db:                   db,
+		proxmox:              proxmox,
+		cfgStore:             cfgStore,
+		testInFlight:         make(map[int]bool),
+		sandboxInUse:         make(map[int]bool),
+		diskDataPctCeiling:   ceiling,
+		minLocalAvailBytes:   minAvail,
+		defaultBackupStorage: scanStorage,
 	}
 }
 
@@ -203,7 +238,7 @@ func (s *BackupService) ListRemotes() ([]RemoteInfo, error) {
 // target enriched with its latest backup and RPO status, plus a coverage summary.
 func (s *BackupService) Dashboard() ([]models.BackupTargetView, models.BackupSummary, error) {
 	pm := s.cfgStore.ProxmoxSnapshot()
-	entries, err := s.proxmox.ListBackups(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret, defaultBackupStorage)
+	entries, err := s.proxmox.ListBackups(pm.URL, pm.Node, pm.TokenID, pm.TokenSecret, s.defaultBackupStorage)
 	if err != nil {
 		// Soft-fail: still render DB targets without fresh backup data.
 		slog.Error("backup: list backups", "error", err)
@@ -449,7 +484,7 @@ func (s *BackupService) TriggerBackup(targetID int, destination, remote, usernam
 	// an unsafe name. Sanitize again before it flows into Discord notifications.
 	name = sanitizeName(name, vmid)
 	if storage == "" {
-		storage = defaultBackupStorage
+		storage = s.defaultBackupStorage
 	}
 
 	// Map the Proxmox guest type for the API path. Auto-discovered targets store

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"goacloud/internal/config"
@@ -102,21 +103,30 @@ func (h *Handler) renderOnboardingProxmox(w http.ResponseWriter, r *http.Request
 	// A DB row is in effect → expose the rollback (revert to env / clear).
 	canRollback := source == "db"
 
+	// Restore-test "Réglages avancés": render the resolved VLAN (floored to 99 when
+	// unset) and the live restore_storage / crypt_remote. The sandbox bridge is its
+	// OWN field (SandboxBridge), distinct from the creation bridge — the form prefills
+	// it from the dedicated value (raw, so an unset field renders empty with a vmbr1
+	// placeholder rather than silently echoing the creation bridge).
 	data := map[string]any{
-		"URL":           snap.URL,
-		"Node":          snap.Node,
-		"TokenID":       snap.TokenID,
-		"Storage":       snap.Storage,
-		"Bridge":        snap.Bridge,
-		"SecretPresent": secretPresent,
-		"Configured":    snap.Configured(),
-		"Source":        source, // "db" | "env" | "unconfigured"
-		"EnvImportable": envImportable,
-		"EnvPresent":    env.URL != "" && env.TokenID != "",
-		"CanRollback":   canRollback,
-		"Error":         errMsg,
-		"Success":       okMsg,
-		"User":          middleware.GetSessionUser(r, h.SessionStore),
+		"URL":            snap.URL,
+		"Node":           snap.Node,
+		"TokenID":        snap.TokenID,
+		"Storage":        snap.Storage,
+		"Bridge":         snap.Bridge,
+		"SandboxBridge":  snap.SandboxBridge,
+		"SandboxVlan":    snap.SandboxVlanTag(),
+		"RestoreStorage": snap.RestoreStorage,
+		"CryptRemote":    snap.CryptRemote,
+		"SecretPresent":  secretPresent,
+		"Configured":     snap.Configured(),
+		"Source":         source, // "db" | "env" | "unconfigured"
+		"EnvImportable":  envImportable,
+		"EnvPresent":     env.URL != "" && env.TokenID != "",
+		"CanRollback":    canRollback,
+		"Error":          errMsg,
+		"Success":        okMsg,
+		"User":           middleware.GetSessionUser(r, h.SessionStore),
 	}
 	if err := h.Templates.ExecuteTemplate(w, "onboarding-proxmox.html", data); err != nil {
 		slog.Error("Template error (onboarding-proxmox.html)", "error", err)
@@ -144,6 +154,22 @@ func (h *Handler) handleOnboardingProxmoxSave(w http.ResponseWriter, r *http.Req
 		TokenSecret: r.FormValue("token_secret"),
 		Storage:     strings.TrimSpace(r.FormValue("storage")),
 		Bridge:      strings.TrimSpace(r.FormValue("bridge")),
+		// "Réglages avancés" (restore-test sandbox). All optional; empty falls through
+		// to the env / hard-default layer at resolution time.
+		RestoreStorage: strings.TrimSpace(r.FormValue("restore_storage")),
+		SandboxBridge:  strings.TrimSpace(r.FormValue("sandbox_bridge")),
+		CryptRemote:    strings.TrimSpace(r.FormValue("crypt_remote")),
+	}
+	// sandbox_vlan: parse + validate 1-4094. A blank field means "unset" (keep the
+	// env/hard default), so we only reject a non-empty, out-of-range value — never
+	// persist a 0 that would read as "no isolation".
+	if raw := strings.TrimSpace(r.FormValue("sandbox_vlan")); raw != "" {
+		v, convErr := strconv.Atoi(raw)
+		if convErr != nil || v < 1 || v > 4094 {
+			h.renderOnboardingProxmox(w, r, "VLAN d'isolation invalide (entier entre 1 et 4094, ou vide pour le défaut 99).", "")
+			return
+		}
+		form.SandboxVlan = v
 	}
 	// "save anyway" lets an admin persist past a transient network error (the
 	// server still re-tests; only a hard auth failure is non-overridable).
@@ -195,14 +221,20 @@ func (h *Handler) handleOnboardingProxmoxSave(w http.ResponseWriter, r *http.Req
 	}
 
 	// Hot-reload the live connection: single atomic swap + cfg mirror + SSH creds
-	// refresh (console root follows the new Proxmox immediately).
+	// refresh (console root follows the new Proxmox immediately). The sandbox bridge
+	// is a DEDICATED field (its own extra_json key) — it never folds into Bridge, so a
+	// prod creation bridge can never silently become the isolation bridge.
 	h.ConfigStore.ApplyProxmox(config.ProxmoxConn{
-		URL:         form.URL,
-		Node:        form.Node,
-		TokenID:     form.TokenID,
-		TokenSecret: form.TokenSecret,
-		Storage:     form.Storage,
-		Bridge:      form.Bridge,
+		URL:            form.URL,
+		Node:           form.Node,
+		TokenID:        form.TokenID,
+		TokenSecret:    form.TokenSecret,
+		Storage:        form.Storage,
+		Bridge:         form.Bridge,
+		SandboxVlan:    form.SandboxVlan,
+		RestoreStorage: form.RestoreStorage,
+		CryptRemote:    form.CryptRemote,
+		SandboxBridge:  form.SandboxBridge,
 	})
 
 	// Populate the VM cache now so the Proxmox page is live without waiting for
@@ -212,7 +244,18 @@ func (h *Handler) handleOnboardingProxmoxSave(w http.ResponseWriter, r *http.Req
 	go services.LogAudit(h.DB, 0, user, "Onboarding Proxmox",
 		"Connexion Proxmox enregistrée ("+form.URL+", node="+safeNode(form.Node)+")", middleware.RealIP(r))
 
-	h.renderOnboardingProxmox(w, r, "", "Connexion Proxmox enregistrée et activée.")
+	// Isolation advisory (non-blocking): the sandbox bridge should carry the
+	// routed-nowhere isolation VLAN and must NOT be the prod creation bridge. If an
+	// admin explicitly set the sandbox bridge equal to the creation bridge while also
+	// posing a sandbox VLAN, the (bridge,vlan) pair may land a restored prod guest on a
+	// live segment when that bridge does not trunk the isolation VLAN. We still save —
+	// this is the operator's call — but we surface the risk in the success banner.
+	okMsg := "Connexion Proxmox enregistrée et activée."
+	if form.SandboxBridge != "" && form.SandboxBridge == form.Bridge && form.SandboxVlan > 0 {
+		okMsg += " Attention : le bridge sandbox est identique au bridge de création — il doit porter le VLAN d'isolation routé nulle part et ne devrait pas être le bridge de prod."
+	}
+
+	h.renderOnboardingProxmox(w, r, "", okMsg)
 }
 
 // HandleOnboardingImportEnv seeds the DB connection row from the environment in
@@ -235,13 +278,18 @@ func (h *Handler) HandleOnboardingImportEnv(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	storage, bridge := services.ProxmoxExtra(conn)
+	restoreStorage, cryptRemote, sandboxBridge, sandboxVlan := services.ProxmoxSandboxExtra(conn)
 	h.ConfigStore.ApplyProxmox(config.ProxmoxConn{
-		URL:         conn.URL,
-		Node:        conn.Node,
-		TokenID:     conn.TokenID,
-		TokenSecret: secret,
-		Storage:     storage,
-		Bridge:      bridge,
+		URL:            conn.URL,
+		Node:           conn.Node,
+		TokenID:        conn.TokenID,
+		TokenSecret:    secret,
+		Storage:        storage,
+		Bridge:         bridge,
+		SandboxVlan:    sandboxVlan,
+		RestoreStorage: restoreStorage,
+		CryptRemote:    cryptRemote,
+		SandboxBridge:  sandboxBridge,
 	})
 	workers.RefreshVMCache(h.DB, h.ConfigStore, h.Proxmox, h.ProxmoxCache, h.SSEBroker)
 

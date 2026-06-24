@@ -193,6 +193,58 @@
                     </div>
                 </div>
 
+                <!-- Réglages avancés (test de restauration) — repliés par défaut -->
+                <details class="rounded-lg border border-outline-variant bg-surface-container-high/40">
+                    <summary class="cursor-pointer select-none px-4 py-3 text-sm font-medium text-on-surface flex items-center gap-2">
+                        <svg class="w-4 h-4 text-on-surface-variant" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Réglages avancés (test de restauration)
+                    </summary>
+                    <div class="px-4 pb-4 pt-1 space-y-4">
+                        <p class="text-xs text-on-surface-variant">
+                            Paramètres du sandbox de test de restauration. Laissez vide pour les valeurs par
+                            défaut (VLAN 99, storage et remote auto-résolus). Le VLAN d'isolation doit être
+                            <strong>routé nulle part</strong> côté firewall, et le bridge sandbox doit
+                            <strong>porter ce VLAN</strong>.
+                        </p>
+
+                        <!-- VLAN d'isolation + Bridge sandbox (couple) -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <label for="sandbox_vlan" class="text-sm font-medium text-on-surface ml-1">VLAN d'isolation</label>
+                                <input id="sandbox_vlan" name="sandbox_vlan" type="number" min="1" max="4094" value="{{.SandboxVlan}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="99">
+                            </div>
+                            <div class="space-y-2">
+                                <label for="sandbox_bridge" class="text-sm font-medium text-on-surface ml-1">Bridge sandbox <span class="text-on-surface-variant">(couplé)</span></label>
+                                <input id="sandbox_bridge" name="sandbox_bridge" type="text" value="{{.SandboxBridge}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="vmbr1">
+                            </div>
+                        </div>
+
+                        <!-- Storage de restore + Remote off-site (cryptcheck N1) -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <label for="restore_storage" class="text-sm font-medium text-on-surface ml-1">Storage de restore <span class="text-on-surface-variant">(vide=auto)</span></label>
+                                <input id="restore_storage" name="restore_storage" type="text" value="{{.RestoreStorage}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="auto-détecté">
+                            </div>
+                            <div class="space-y-2">
+                                <label for="crypt_remote" class="text-sm font-medium text-on-surface ml-1">Remote off-site (N1)</label>
+                                <input id="crypt_remote" name="crypt_remote" type="text" value="{{.CryptRemote}}"
+                                    class="js-field w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="gcrypt">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
                 <!-- Test result panel -->
                 <div id="test-result" class="hidden p-3 rounded-lg text-sm"></div>
 

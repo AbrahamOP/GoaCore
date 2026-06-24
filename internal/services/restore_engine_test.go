@@ -218,7 +218,7 @@ func TestBuildSandboxNetN_MultipleInterfaces(t *testing.T) {
 		"net2": "name=eth2,bridge=vmbr1,tag=99",
 	}
 	for key, cur := range ifaces {
-		got := buildSandboxNetN(cur, "qemu", 99)
+		got := buildSandboxNetN(cur, "qemu", 99, "vmbr1")
 		if got != want[key] {
 			t.Errorf("%s: buildSandboxNetN(%q) = %q, want %q", key, cur, got, want[key])
 		}

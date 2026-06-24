@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"goacloud/internal/config"
 	"goacloud/internal/models"
@@ -92,8 +93,30 @@ func (s *ConnectionStore) SaveProxmox(form models.ProxmoxConnectionForm, updated
 }
 
 func (s *ConnectionStore) saveProxmox(form models.ProxmoxConnectionForm, updatedBy, source string) error {
+	// extra_json is a clear-text blob (no secret ever lands here — the token secret
+	// goes to the encrypted secret_enc column). storage/bridge predate Jalon 2; the
+	// restore-test sandbox attributes are appended beside them with no schema change.
+	//
+	// The sandbox bridge has its OWN key ("sandbox_bridge"), DELIBERATELY separate from
+	// the creation "bridge" key: the two must never share a value, otherwise a creation
+	// bridge of vmbr0 (prod) would silently become the isolation bridge and a restored
+	// prod guest could boot onto a live segment. We persist sandbox_bridge / sandbox_vlan
+	// only when set so an unset value falls through to the env/hard-default layer
+	// (vmbr1 / VLAN 99) at resolution time — never inheriting pm.Bridge.
+	extra := map[string]string{
+		"storage":         form.Storage,
+		"bridge":          form.Bridge,
+		"restore_storage": form.RestoreStorage,
+		"crypt_remote":    form.CryptRemote,
+	}
+	if form.SandboxBridge != "" {
+		extra["sandbox_bridge"] = form.SandboxBridge
+	}
+	if form.SandboxVlan > 0 {
+		extra["sandbox_vlan"] = strconv.Itoa(form.SandboxVlan)
+	}
 	return s.save(serviceProxmox, form.URL, form.Node, form.TokenID, form.TokenSecret,
-		map[string]string{"storage": form.Storage, "bridge": form.Bridge}, updatedBy, source)
+		extra, updatedBy, source)
 }
 
 // save is the generic, service-neutral upsert behind every Save* wrapper. It
@@ -198,17 +221,40 @@ func (s *ConnectionStore) ImportFromEnv(cfg *config.Config) error {
 		TokenSecret: cfg.ProxmoxTokenSecret,
 		Storage:     cfg.ProxmoxStorage,
 		Bridge:      cfg.ProxmoxBridge,
+		// Carry the env-seeded restore-test attributes into the DB row so an
+		// import-then-DB-source transition preserves them (CryptRemote has no env
+		// yet → stays empty → hard default at resolution time). SandboxBridge comes
+		// from its OWN env (GOABACKUP_SANDBOX_BRIDGE), never from ProxmoxBridge.
+		SandboxVlan:    cfg.SandboxVlan,
+		RestoreStorage: cfg.RestoreStorage,
+		SandboxBridge:  cfg.SandboxBridge,
 	}
 	return s.saveProxmox(form, "import-env", "env")
 }
 
 // ProxmoxExtra extracts the storage/bridge values from a loaded connection's
-// extra_json, with safe empty-string fallbacks.
+// extra_json, with safe empty-string fallbacks. It is the narrow, Jalon-1 reader
+// kept for callers that only need the creation storage/bridge.
 func ProxmoxExtra(c *models.Connection) (storage, bridge string) {
 	if c == nil || c.Extra == nil {
 		return "", ""
 	}
 	return c.Extra["storage"], c.Extra["bridge"]
+}
+
+// ProxmoxSandboxExtra extracts the Jalon-2 restore-test sandbox attributes from a
+// loaded connection's extra_json, with safe fallbacks (empty strings / 0 VLAN). A
+// malformed sandbox_vlan parses to 0, which the resolver floors back to the hard
+// default — never a silent "no isolation". sandbox_bridge is its own dedicated key
+// (empty ⇒ hard vmbr1 fallback, never the creation bridge). It is deliberately
+// separate from ProxmoxExtra so the two well-understood Jalon-1 callers stay
+// untouched in shape.
+func ProxmoxSandboxExtra(c *models.Connection) (restoreStorage, cryptRemote, sandboxBridge string, sandboxVlan int) {
+	if c == nil || c.Extra == nil {
+		return "", "", "", 0
+	}
+	v, _ := strconv.Atoi(c.Extra["sandbox_vlan"]) // "" or garbage ⇒ 0 ⇒ hard default
+	return c.Extra["restore_storage"], c.Extra["crypt_remote"], c.Extra["sandbox_bridge"], v
 }
 
 // --- Wazuh Indexer quartet (service='wazuh-indexer') ---
