@@ -5,6 +5,7 @@
 ![Go](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Statut](https://img.shields.io/badge/Statut-pré--1.0-orange)
+![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
 
 GoaCloud unifie trois domaines habituellement éclatés entre plusieurs outils — **gestion d'infrastructure**, **opérations de sécurité** et **sauvegardes dont la restaurabilité est réellement prouvée par un test de restauration** — en une suite intégrée que la PME installe chez elle et configure entièrement depuis l'interface web.
 
@@ -214,4 +215,8 @@ Les modalités de contribution seront publiées avec l'ouverture du dépôt (Jal
 
 ## License
 
-**À finaliser (Jalon 4).** Aucune licence définitive n'est encore arrêtée et **aucun fichier `LICENSE` ne fait foi à ce stade**. Le projet a vocation à être open-source ; une licence de type **AGPL-3.0** est à l'étude pour préserver la souveraineté du modèle, mais ce choix n'est pas figé. La licence retenue sera publiée avec l'ouverture du dépôt.
+GoaCloud est distribué sous licence **GNU Affero General Public License v3.0** (AGPL-3.0) — voir [LICENSE](LICENSE).
+
+La **clause réseau** de l'AGPL impose que toute version modifiée mise à disposition via un réseau (y compris en SaaS) en publie les sources : elle préserve la souveraineté du modèle et empêche la fermeture du code en produit propriétaire. C'est un choix délibéré, cohérent avec le positionnement souverain du projet.
+
+Copyright © 2026 GoaCloud.
