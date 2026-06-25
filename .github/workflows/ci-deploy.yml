@@ -101,24 +101,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Build the image on the shared Docker daemon BEFORE triggering Portainer.
-      # The Portainer stack uses `build: .` but its webhook runs `up -d` WITHOUT
-      # --build, so it would otherwise keep serving the stale image. The compose
-      # service pins `image: goacloud:latest`, so the pre-built image MUST carry
-      # that exact tag — otherwise `up -d` resolves `goacloud:latest`, finds the
-      # old one, and never recreates the container with the new code.
-      - name: Build PROD image
-        run: docker build -t goacloud:latest .
-
-      # The Portainer webhook runs `up -d` WITHOUT --build/--force-recreate. On an
-      # unchanged compose service that is a no-op even after the image is rebuilt
-      # above, so the container keeps the OLD code (the prod symptom: deploys never
-      # swapped). Removing ONLY the app container forces the webhook's `up -d` to
-      # recreate it from the fresh goacloud:latest image. The `db` container and ALL
-      # named volumes (the MySQL data) are LEFT UNTOUCHED — zero data loss.
-      - name: Force PROD app recreation (webhook 'up -d' alone won't swap it)
-        run: docker rm -f goacloud_app 2>/dev/null || true
-
+      # The Portainer webhook re-pulls the repo then runs compose pull -> build -> up.
+      # The app service is build-only (no pinned `image:` registry tag — see
+      # docker-compose.yml), so `compose pull` SKIPS it (no "pull access denied"
+      # abort that previously killed every prod redeploy), Portainer rebuilds it from
+      # source and `up -d` recreates the container with the new code. The db container
+      # and ALL named volumes (MySQL data) are preserved. No pre-build / no rm needed.
       - name: Trigger Portainer (PROD)
         run: |
           curl -sk -X POST "${{ secrets.PORTAINER_WEBHOOK_URL_PROD }}" \
