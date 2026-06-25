@@ -86,8 +86,8 @@ jobs:
           SHORT="${GITHUB_SHA:0:7}"
           curl -sf -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK" -d "{
             \"embeds\": [{
-              \"title\": \"GoaCloud DEV - Deploy OK\",
-              \"description\": \"**Commit:** \`$SHORT\`\\n**Auteur:** ${{ github.actor }}\\n**Message:** $SAFE_MSG\\n\\n:globe_with_meridians: https://devdash.goacloud.fr\",
+              \"title\": \"GoaCore DEV - Deploy OK\",
+              \"description\": \"**Commit:** \`$SHORT\`\\n**Auteur:** ${{ github.actor }}\\n**Message:** $SAFE_MSG\\n\\n:globe_with_meridians: https://devcore.goacloud.fr\",
               \"color\": 3447003,
               \"footer\": {\"text\": \"Branche dev | Self-hosted runner\"}
             }]
@@ -110,6 +110,15 @@ jobs:
       - name: Build PROD image
         run: docker build -t goacloud:latest .
 
+      # The Portainer webhook runs `up -d` WITHOUT --build/--force-recreate. On an
+      # unchanged compose service that is a no-op even after the image is rebuilt
+      # above, so the container keeps the OLD code (the prod symptom: deploys never
+      # swapped). Removing ONLY the app container forces the webhook's `up -d` to
+      # recreate it from the fresh goacloud:latest image. The `db` container and ALL
+      # named volumes (the MySQL data) are LEFT UNTOUCHED — zero data loss.
+      - name: Force PROD app recreation (webhook 'up -d' alone won't swap it)
+        run: docker rm -f goacloud_app 2>/dev/null || true
+
       - name: Trigger Portainer (PROD)
         run: |
           curl -sk -X POST "${{ secrets.PORTAINER_WEBHOOK_URL_PROD }}" \
@@ -124,8 +133,8 @@ jobs:
           SHORT="${GITHUB_SHA:0:7}"
           curl -sf -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK" -d "{
             \"embeds\": [{
-              \"title\": \"GoaCloud PROD - Deploy OK\",
-              \"description\": \"**Commit:** \`$SHORT\`\\n**Auteur:** ${{ github.actor }}\\n**Message:** $SAFE_MSG\\n\\n:globe_with_meridians: https://dash.goacloud.fr\",
+              \"title\": \"GoaCore PROD - Deploy OK\",
+              \"description\": \"**Commit:** \`$SHORT\`\\n**Auteur:** ${{ github.actor }}\\n**Message:** $SAFE_MSG\\n\\n:globe_with_meridians: https://core.goacloud.fr\",
               \"color\": 3066993,
               \"footer\": {\"text\": \"Branche main | Self-hosted runner\"}
             }]
