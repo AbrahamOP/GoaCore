@@ -8,7 +8,7 @@
      $.Selected (one of wazuh-indexer|wazuh|ai|discord) decides the initial panel.
    ============================================================================ */}}
 {{define "settings-services"}}
-<div class="grid grid-cols-1 lg:grid-cols-[minmax(220px,260px)_1fr] gap-6 items-start">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 
     <!-- ===== Master list ===== -->
     <aside>
@@ -64,7 +64,7 @@
     </aside>
 
     <!-- ===== Detail panels ===== -->
-    <div class="min-w-0">
+    <div class="min-w-0 lg:col-span-2">
 
         <!-- ---------- Wazuh Indexer ---------- -->
         {{with .WazuhIndexer}}
