@@ -52,7 +52,7 @@
             <div class="flex flex-col gap-6">
                 {{template "settings-nav" .}}
 
-                <section class="flex-1 min-w-0 w-full max-w-2xl">
+                <section class="flex-1 min-w-0 w-full max-w-4xl">
                     <div class="bg-surface-container rounded-xl p-8 shadow-lg border border-outline-variant" style="border-top: 3px solid var(--md-color-primary);">
             <!-- Header -->
             <div class="text-center mb-6">
@@ -139,6 +139,13 @@
             <form id="proxmox-form" action="/onboarding/proxmox" method="POST" class="space-y-5">
                 <input type="hidden" id="force" name="force" value="0">
 
+                <!-- ===== 2 colonnes : connexion (gauche) | options & restauration (droite) ===== -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-5 items-start">
+
+                <!-- ===== Colonne gauche : connexion à l'hyperviseur ===== -->
+                <div class="space-y-5">
+                    <p class="px-1 text-xs font-semibold text-primary uppercase tracking-wider">Connexion à l'hyperviseur</p>
+
                 <!-- URL -->
                 <div class="space-y-2">
                     <label for="url" class="text-sm font-medium text-on-surface ml-1">URL Proxmox</label>
@@ -188,6 +195,13 @@
                         </button>
                     </div>
                 </div>
+
+                </div>
+                <!-- ===== /Colonne gauche ===== -->
+
+                <!-- ===== Colonne droite : options de provisioning & test de restauration ===== -->
+                <div class="space-y-5">
+                    <p class="px-1 text-xs font-semibold text-primary uppercase tracking-wider">Options &amp; restauration</p>
 
                 <!-- Storage + Bridge -->
                 <div class="grid grid-cols-2 gap-4">
@@ -256,6 +270,12 @@
                         </div>
                     </div>
                 </details>
+
+                </div>
+                <!-- ===== /Colonne droite ===== -->
+
+                </div>
+                <!-- ===== /2 colonnes ===== -->
 
                 <!-- Test result panel -->
                 <div id="test-result" class="hidden p-3 rounded-lg text-sm"></div>
