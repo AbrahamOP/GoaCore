@@ -24,7 +24,7 @@ type onboardingHint struct {
 //
 // An empty slice means everything optional is configured → no banner is rendered.
 func (h *Handler) onboardingHints() []onboardingHint {
-	const link = "/onboarding/connexions"
+	const link = "/parametres/services"
 	var hints []onboardingHint
 	if !h.wazuhCard().Configured {
 		hints = append(hints, onboardingHint{Label: "Wazuh (sécurité)", Link: link})

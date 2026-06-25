@@ -93,6 +93,17 @@ func GetSessionUser(r *http.Request, store *sessions.CookieStore) string {
 	return username
 }
 
+// GetSessionRole returns the role stored in the session ("Admin"/"Viewer"/"").
+// AuthMiddleware keeps session.Values["role"] in sync with the DB on every request,
+// so this is a lock-free read suitable for role-aware view rendering (e.g. hiding
+// admin-only nav entries). It is NOT an authorization gate on its own — the
+// admin-only routes are still enforced by AdminOnly/RequireAdmin at the router level.
+func GetSessionRole(r *http.Request, store *sessions.CookieStore) string {
+	session, _ := store.Get(r, "goacloud-session")
+	role, _ := session.Values["role"].(string)
+	return role
+}
+
 func countUsers(db *sql.DB) (int, error) {
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)

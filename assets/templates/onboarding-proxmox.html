@@ -29,19 +29,31 @@
     </style>
 </head>
 
-<body
-    class="flex items-center justify-center min-h-screen bg-surface text-on-surface relative overflow-y-auto py-10">
+<body class="min-h-screen flex bg-surface text-on-surface">
 
-    <!-- Decoration Gradients (sidebar palette) — clipped to a fixed full-screen
-         layer so the absolutely-positioned bubbles never add a horizontal scrollbar
-         once the body scrolls vertically on short viewports. -->
-    <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+    {{template "mobile-overlay"}}
+    {{template "sidebar"}}
+
+    <main class="flex-1 md:ml-64 overflow-y-auto bg-surface relative">
         {{template "bubbles"}}
-    </div>
 
-    <!-- Main Container -->
-    <div class="relative z-10 w-full max-w-lg px-6">
-        <div class="bg-surface-container rounded-xl p-8 shadow-lg border border-outline-variant">
+        <div class="px-8 py-10 relative z-10">
+            <!-- Header -->
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold text-on-surface mb-2"><span class="gradient-text">Paramètres</span></h2>
+                    <p class="text-on-surface-variant text-sm">{{.HeaderSubtitle}}</p>
+                </div>
+                <div class="flex items-center gap-3 flex-wrap">
+                    {{template "top-actions"}}
+                </div>
+            </div>
+
+            <div class="flex flex-col lg:flex-row gap-8 items-start">
+                {{template "settings-nav" .}}
+
+                <section class="flex-1 min-w-0 w-full max-w-2xl">
+                    <div class="bg-surface-container rounded-xl p-8 shadow-lg border border-outline-variant" style="border-top: 3px solid var(--md-color-primary);">
             <!-- Header -->
             <div class="text-center mb-6">
                 <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-primary mb-4 shadow-lg">
@@ -270,15 +282,15 @@
                 </div>
                 <p id="save-anyway-hint" class="hidden text-xs text-orange-300 ml-1"></p>
             </form>
+                    </div>
+                </section>
+            </div>
         </div>
-
-        <p class="mt-6 text-center text-xs text-on-surface-variant">
-            GoaCore — onboarding infrastructure. Vous pourrez modifier cette connexion plus tard.
-        </p>
-    </div>
+    </main>
 
     <script src="/static/theme.js"></script>
     <script src="/static/csrf.js"></script>
+    {{template "sidebar-js"}}
     <script>
         // Toggle password visibility
         document.querySelectorAll('[data-toggle-password]').forEach(function (btn) {

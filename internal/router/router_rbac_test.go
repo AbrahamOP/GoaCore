@@ -238,6 +238,15 @@ var routerOnlyDefended = []route{
 	{http.MethodGet, "/onboarding/proxmox"},
 	{http.MethodGet, "/onboarding/connexions"},
 
+	// Paramètres hub — Admin-only sections. Their GET handlers have no inline
+	// RequireAdmin, so the AdminOnly router group is their SOLE barrier: move any of
+	// these into the authenticated group and a Viewer reaches the (services/users/
+	// proxmox/canal) configuration surface, flipping this test red.
+	{http.MethodGet, "/parametres/services"},
+	{http.MethodGet, "/parametres/utilisateurs"},
+	{http.MethodGet, "/parametres/proxmox"},
+	{http.MethodGet, "/parametres/sauvegarde"},
+
 	// SOAR outbound tests (HandleDiscordTest / HandleAITest — no inline check).
 	{http.MethodPost, "/api/soar/discord/test"},
 	{http.MethodPost, "/api/soar/ai/test"},
@@ -559,14 +568,19 @@ func TestRBAC_ViewerCanReachReadOnlySurface(t *testing.T) {
 	setRole("ro_viewer", "Viewer")
 	cookie := sessionCookie(t, store, "ro_viewer", csrfTok)
 
-	// A representative read-only route that lives in the authenticated (non-admin)
-	// group: /api/me. A Viewer must clear AuthMiddleware here (no AdminOnly).
-	rr := doRequest(t, router, http.MethodGet, "/api/me", cookie)
-	if rr.Code == http.StatusForbidden {
-		t.Fatalf("Viewer on GET /api/me: got 403 — read-only surface wrongly gated as admin-only")
-	}
-	if rr.Code == http.StatusSeeOther && rr.Header().Get("Location") == "/login" {
-		t.Fatalf("Viewer on GET /api/me: bounced to /login — authenticated Viewer treated as anon")
+	// Representative routes in the authenticated (non-admin) group a Viewer MUST be able
+	// to reach: /api/me, plus the self-service Paramètres sections (profil, securite) and
+	// the hub index. None carry AdminOnly; putting one behind it by mistake would lock a
+	// Viewer out of their own profile/2FA — this control catches that regression.
+	selfService := []string{"/api/me", "/parametres", "/parametres/profil", "/parametres/securite"}
+	for _, path := range selfService {
+		rr := doRequest(t, router, http.MethodGet, path, cookie)
+		if rr.Code == http.StatusForbidden {
+			t.Fatalf("Viewer on GET %s: got 403 — self-service surface wrongly gated as admin-only", path)
+		}
+		if rr.Code == http.StatusSeeOther && rr.Header().Get("Location") == "/login" {
+			t.Fatalf("Viewer on GET %s: bounced to /login — authenticated Viewer treated as anon", path)
+		}
 	}
 }
 

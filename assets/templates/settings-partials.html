@@ -1,0 +1,83 @@
+{{/* ============================================================================
+     Settings hub shared partials
+     - "settings-nav"   : the role-aware left rail. Reads .Active (current section
+                          key) and .IsAdmin. Admin-only sections (services, proxmox,
+                          sauvegarde, utilisateurs) are HIDDEN for non-admins AND are
+                          enforced Admin-only at the router level — this rail only
+                          mirrors that boundary, it does not create it.
+     - "svc-dot"/"svc-badge" : status indicator helpers. Invoked with a serviceCardData
+                          as dot/badge data(.Source / .Status), e.g. {{template "svc-dot" .WazuhIndexer}}.
+   ============================================================================ */}}
+
+{{define "settings-nav"}}
+<nav class="lg:w-60 flex-shrink-0 w-full">
+    <div class="bg-surface-container border border-outline-variant rounded-xl p-3 lg:sticky lg:top-6 space-y-4">
+        {{if .IsAdmin}}
+        <div>
+            <p class="px-3 text-[11px] font-semibold text-primary uppercase tracking-wider mb-2">Infrastructure</p>
+            <div class="space-y-1">
+                <a href="/parametres/services"
+                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "services"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
+                    <svg class="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m6.828-1.828a4 4 0 010-5.656l3-3a4 4 0 015.656 5.656l-1.5 1.5" />
+                    </svg>
+                    Services
+                </a>
+                <a href="/parametres/proxmox"
+                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "proxmox"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
+                    <svg class="w-5 h-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                    </svg>
+                    Proxmox
+                </a>
+                <a href="/parametres/sauvegarde"
+                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "sauvegarde"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
+                    <svg class="w-5 h-5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                    </svg>
+                    Sauvegarde &amp; cloud
+                </a>
+                <a href="/parametres/utilisateurs"
+                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "utilisateurs"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
+                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    Utilisateurs
+                </a>
+            </div>
+        </div>
+        {{end}}
+        <div>
+            <p class="px-3 text-[11px] font-semibold text-primary uppercase tracking-wider mb-2">Compte</p>
+            <div class="space-y-1">
+                <a href="/parametres/profil"
+                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "profil"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Mon profil
+                </a>
+                <a href="/parametres/securite"
+                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "securite"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
+                    <svg class="w-5 h-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    Sécurité (2FA)
+                </a>
+            </div>
+        </div>
+    </div>
+</nav>
+{{end}}
+
+{{/* Status dot — pass a serviceCardData (e.g. {{template "svc-dot" .WazuhIndexer}}). */}}
+{{define "svc-dot"}}<span class="w-2.5 h-2.5 rounded-full flex-shrink-0 {{if eq .Source "db"}}{{if eq .Status "ok"}}bg-green-500{{else}}bg-red-500{{end}}{{else if eq .Source "env"}}bg-blue-400{{else}}bg-orange-400{{end}}"></span>{{end}}
+
+{{/* Status badge — pass a serviceCardData (e.g. {{template "svc-badge" .Wazuh}}). */}}
+{{define "svc-badge"}}<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap {{if eq .Source "db"}}{{if eq .Status "ok"}}bg-green-500/15 text-green-300{{else}}bg-error-container text-error{{end}}{{else if eq .Source "env"}}bg-blue-500/15 text-blue-300{{else}}bg-orange-500/15 text-orange-300{{end}}">{{if eq .Source "db"}}{{if eq .Status "ok"}}Connecté{{else}}Erreur{{end}}{{else if eq .Source "env"}}Env{{else}}Non configuré{{end}}</span>{{end}}

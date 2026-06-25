@@ -72,42 +72,45 @@ type serviceCardData struct {
 	Wired bool
 }
 
-// HandleOnboardingConnexions serves the unified Admin-only connections page (GET).
-// POST saves are routed to per-service handlers (this page's forms target the
-// per-service POST endpoints), so the page handler itself is GET-only.
+// HandleOnboardingConnexions is the legacy entry point for the services connection
+// page. It now lives inside the Paramètres hub, so this redirects to the hub's
+// Services section (preserves old bookmarks and the onboarding-gate-exempt path).
 func (h *Handler) HandleOnboardingConnexions(w http.ResponseWriter, r *http.Request) {
-	h.renderConnexions(w, r, "", "")
+	http.Redirect(w, r, "/parametres/services", http.StatusSeeOther)
 }
 
-// renderConnexions gathers every service card and renders the unified template.
-// errMsg/okMsg are optional banners (set by a per-service POST that re-renders).
+// renderConnexions assembles the Services section of the Paramètres hub (master-detail
+// of the four registry services) and renders the shared settings.html scaffold.
+// errMsg/okMsg are optional banners (set by a per-service POST that re-renders). The
+// selected panel is inferred from the request path so a save/import/delete re-renders
+// with the acted-on service in focus.
 func (h *Handler) renderConnexions(w http.ResponseWriter, r *http.Request, errMsg, okMsg string) {
-	data := map[string]any{
-		"User":          middleware.GetSessionUser(r, h.SessionStore),
-		"Error":         errMsg,
-		"Success":       okMsg,
-		"WazuhIndexer":  h.wazuhIndexerCard(),
-		"Wazuh":         h.wazuhCard(),
-		"AI":            h.aiCard(),
-		"Discord":       h.discordCard(),
-		"ProxmoxLink":   "/onboarding/proxmox",
-		"ProxmoxStatus": h.proxmoxCardStatus(),
-		"ChannelLink":   "/onboarding/canal",
-		"ChannelStatus": h.channelCardStatus(),
-	}
-	if err := h.Templates.ExecuteTemplate(w, "onboarding-connexions.html", data); err != nil {
-		slog.Error("Template error (onboarding-connexions.html)", "error", err)
-		http.Error(w, "Template error", http.StatusInternalServerError)
-	}
+	data := h.settingsBase(r, "services",
+		"Reliez GoaCore à vos services (SIEM, IA, notifications). Chaque connexion est testée puis chiffrée au repos.")
+	data["WazuhIndexer"] = h.wazuhIndexerCard()
+	data["Wazuh"] = h.wazuhCard()
+	data["AI"] = h.aiCard()
+	data["Discord"] = h.discordCard()
+	data["Selected"] = serviceFromPath(r.URL.Path)
+	data["Error"] = errMsg
+	data["Success"] = okMsg
+	h.renderSettings(w, data)
 }
 
-// proxmoxCardStatus reports a short label for the Proxmox panel link on the unified
-// page (Proxmox keeps its own dedicated onboarding flow this iteration).
-func (h *Handler) proxmoxCardStatus() string {
-	if h.ConfigStore.ProxmoxConfigured() {
-		return "ok"
+// serviceFromPath extracts the service key (the path segment right after "onboarding")
+// so a per-service POST re-renders with that service pre-selected in the master-detail.
+// Falls back to the first service for the bare GET (/parametres/services).
+func serviceFromPath(p string) string {
+	parts := strings.Split(p, "/")
+	for i, s := range parts {
+		if s == "onboarding" && i+1 < len(parts) {
+			switch parts[i+1] {
+			case "wazuh-indexer", "wazuh", "ai", "discord":
+				return parts[i+1]
+			}
+		}
 	}
-	return "unconfigured"
+	return "wazuh-indexer"
 }
 
 // --- Wazuh Indexer quartet ---

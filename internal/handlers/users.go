@@ -6,42 +6,13 @@ import (
 	"net/http"
 
 	"goacore/internal/middleware"
-	"goacore/internal/models"
 	"goacore/internal/services"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// HandleUsers renders the user management page.
-func (h *Handler) HandleUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query("SELECT id, username, email, role, created_at FROM users ORDER BY created_at DESC")
-	if err != nil {
-		http.Error(w, "Erreur base de données", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	var users []models.User
-	for rows.Next() {
-		var u models.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.CreatedAt); err != nil {
-			slog.Error("Error scanning user", "error", err)
-			continue
-		}
-		users = append(users, u)
-	}
-	if err := rows.Err(); err != nil {
-		slog.Error("Error iterating users", "error", err)
-	}
-
-	data := struct {
-		Users []models.User
-	}{Users: users}
-
-	if err := h.Templates.ExecuteTemplate(w, "users.html", data); err != nil {
-		slog.Error("Template execution error", "error", err)
-		http.Error(w, "Render error", http.StatusInternalServerError)
-	}
-}
+// The user-management page itself moved into the Paramètres hub (see settings.go:
+// HandleSettingsUtilisateurs, served at /users and /parametres/utilisateurs). The
+// create/update/delete endpoints below stay here and redirect back to /users.
 
 // HandleAddUser creates a new user (Admin only).
 func (h *Handler) HandleAddUser(w http.ResponseWriter, r *http.Request) {

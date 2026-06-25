@@ -1,0 +1,784 @@
+{{/* ============================================================================
+     Settings ▸ Services (master-detail)
+     Left: compact service list (dot + name + status badge). Right: the edit panel
+     for the selected service. The per-service forms POST to their existing
+     /onboarding/<svc> endpoints (Admin-only) and the Test buttons hit
+     /api/onboarding/<svc>/test — identical contracts to the former connexions page,
+     so the proven Test→enable-Save JS is reused verbatim (see settings-services-js).
+     $.Selected (one of wazuh-indexer|wazuh|ai|discord) decides the initial panel.
+   ============================================================================ */}}
+{{define "settings-services"}}
+<div class="grid grid-cols-1 lg:grid-cols-[minmax(220px,260px)_1fr] gap-6 items-start">
+
+    <!-- ===== Master list ===== -->
+    <aside>
+        <div class="bg-surface-container border border-outline-variant rounded-xl p-2 space-y-1">
+            {{with .WazuhIndexer}}
+            <button type="button" data-svc-tab="wazuh-indexer"
+                class="svc-tab w-full flex items-center gap-3 px-3 py-3 rounded-lg border-l-2 transition-colors {{if eq $.Selected "wazuh-indexer"}}bg-surface-container-high border-primary{{else}}border-transparent hover:bg-surface-container-high{{end}}">
+                {{template "svc-dot" .}}
+                <span class="flex-1 text-left min-w-0">
+                    <span class="block text-sm font-semibold text-on-surface truncate">Wazuh Indexer</span>
+                    <span class="block text-xs text-on-surface-variant truncate">OpenSearch</span>
+                </span>
+                {{template "svc-badge" .}}
+            </button>
+            {{end}}
+            {{with .Wazuh}}
+            <button type="button" data-svc-tab="wazuh"
+                class="svc-tab w-full flex items-center gap-3 px-3 py-3 rounded-lg border-l-2 transition-colors {{if eq $.Selected "wazuh"}}bg-surface-container-high border-primary{{else}}border-transparent hover:bg-surface-container-high{{end}}">
+                {{template "svc-dot" .}}
+                <span class="flex-1 text-left min-w-0">
+                    <span class="block text-sm font-semibold text-on-surface truncate">Wazuh API</span>
+                    <span class="block text-xs text-on-surface-variant truncate">Manager — agents</span>
+                </span>
+                {{template "svc-badge" .}}
+            </button>
+            {{end}}
+            {{with .AI}}
+            <button type="button" data-svc-tab="ai"
+                class="svc-tab w-full flex items-center gap-3 px-3 py-3 rounded-lg border-l-2 transition-colors {{if eq $.Selected "ai"}}bg-surface-container-high border-primary{{else}}border-transparent hover:bg-surface-container-high{{end}}">
+                {{template "svc-dot" .}}
+                <span class="flex-1 text-left min-w-0">
+                    <span class="block text-sm font-semibold text-on-surface truncate">Enrichissement IA</span>
+                    <span class="block text-xs text-on-surface-variant truncate">Ollama / OpenAI</span>
+                </span>
+                {{template "svc-badge" .}}
+            </button>
+            {{end}}
+            {{with .Discord}}
+            <button type="button" data-svc-tab="discord"
+                class="svc-tab w-full flex items-center gap-3 px-3 py-3 rounded-lg border-l-2 transition-colors {{if eq $.Selected "discord"}}bg-surface-container-high border-primary{{else}}border-transparent hover:bg-surface-container-high{{end}}">
+                {{template "svc-dot" .}}
+                <span class="flex-1 text-left min-w-0">
+                    <span class="block text-sm font-semibold text-on-surface truncate">Discord</span>
+                    <span class="block text-xs text-on-surface-variant truncate">Bot — notifications</span>
+                </span>
+                {{template "svc-badge" .}}
+            </button>
+            {{end}}
+        </div>
+        <p class="text-xs text-on-surface-variant mt-3 px-1 leading-relaxed">
+            Reliez GoaCore à vos services. Chaque connexion est testée puis chiffrée au repos.
+        </p>
+    </aside>
+
+    <!-- ===== Detail panels ===== -->
+    <div class="min-w-0">
+
+        <!-- ---------- Wazuh Indexer ---------- -->
+        {{with .WazuhIndexer}}
+        <div class="svc-panel {{if ne $.Selected "wazuh-indexer"}}hidden{{end}}" data-svc-panel="wazuh-indexer">
+            <div class="bg-surface-container border border-outline-variant rounded-xl p-6" style="border-top: 3px solid var(--md-color-primary);" data-service="wazuh-indexer">
+                <div class="flex items-center justify-between mb-5">
+                    <div class="flex items-center gap-3">
+                        <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1.5 3 8 3s8-1 8-3V7M4 7c0 2 1.5 3 8 3s8-1 8-3M4 7c0-2 1.5-3 8-3s8 1 8 3" /></svg>
+                        </span>
+                        <div>
+                            <h3 class="text-lg font-bold text-on-surface">Wazuh Indexer</h3>
+                            <p class="text-xs text-on-surface-variant">OpenSearch — vulnérabilités &amp; alertes</p>
+                        </div>
+                    </div>
+                    {{template "svc-badge" .}}
+                </div>
+
+                {{if .EnvImportable}}
+                <form action="/api/onboarding/wazuh-indexer/import-env" method="POST" class="mb-4">
+                    <div class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between gap-3">
+                        <span>Une configuration Indexer existe dans l'environnement.</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 transition">Importer la config env</button>
+                    </div>
+                </form>
+                {{end}}
+                {{if .CanRollback}}
+                <form action="/api/onboarding/wazuh-indexer/delete" method="POST" class="mb-4"
+                    onsubmit="return confirm('Supprimer la connexion Indexer enregistrée et revenir à la configuration d\'environnement ?');">
+                    <div class="p-3 rounded-lg bg-surface-container-high border border-outline-variant text-on-surface-variant text-xs flex items-center justify-between gap-3">
+                        <span>Supprimer la connexion en base (retour à l'env ou non configuré).</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-error-container text-error hover:opacity-90 transition">Supprimer / revenir à l'env</button>
+                    </div>
+                </form>
+                {{end}}
+
+                <form class="svc-form space-y-4" action="/onboarding/wazuh-indexer" method="POST"
+                      data-test-url="/api/onboarding/wazuh-indexer/test"
+                      data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
+                    <input type="hidden" class="js-force" name="force" value="0">
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium text-on-surface ml-1">URL Indexer</label>
+                        <input name="url" type="text" required value="{{.URL}}"
+                            class="js-field js-url w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="https://192.0.2.20:9200">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">Utilisateur</label>
+                            <input name="user" type="text" required value="{{.User}}"
+                                class="js-field js-user w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                placeholder="admin">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">Mot de passe {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
+                            <div class="relative">
+                                <input name="password" type="password" {{if not .SecretPresent}}required{{end}}
+                                    class="js-field js-secret input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="{{if .SecretPresent}}••••••••{{else}}mot de passe{{end}}">
+                                {{template "svc-eye-toggle"}}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="js-result hidden p-3 rounded-lg text-sm"></div>
+                    <div class="flex gap-3 pt-1">
+                        {{template "svc-test-btn"}}
+                        {{template "svc-save-btn"}}
+                    </div>
+                    <p class="js-save-hint hidden text-xs text-orange-300 ml-1"></p>
+                </form>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- ---------- Wazuh API ---------- -->
+        {{with .Wazuh}}
+        <div class="svc-panel {{if ne $.Selected "wazuh"}}hidden{{end}}" data-svc-panel="wazuh">
+            <div class="bg-surface-container border border-outline-variant rounded-xl p-6" style="border-top: 3px solid var(--md-color-primary);" data-service="wazuh">
+                <div class="flex items-center justify-between mb-5">
+                    <div class="flex items-center gap-3">
+                        <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                        </span>
+                        <div>
+                            <h3 class="text-lg font-bold text-on-surface">Wazuh API</h3>
+                            <p class="text-xs text-on-surface-variant">Manager — agents &amp; règles SIEM</p>
+                        </div>
+                    </div>
+                    {{template "svc-badge" .}}
+                </div>
+
+                {{if .EnvImportable}}
+                <form action="/api/onboarding/wazuh/import-env" method="POST" class="mb-4">
+                    <div class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between gap-3">
+                        <span>Une configuration Wazuh API existe dans l'environnement.</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 transition">Importer la config env</button>
+                    </div>
+                </form>
+                {{end}}
+                {{if .CanRollback}}
+                <form action="/api/onboarding/wazuh/delete" method="POST" class="mb-4"
+                    onsubmit="return confirm('Supprimer la connexion Wazuh API enregistrée et revenir à la configuration d\'environnement ?');">
+                    <div class="p-3 rounded-lg bg-surface-container-high border border-outline-variant text-on-surface-variant text-xs flex items-center justify-between gap-3">
+                        <span>Supprimer la connexion en base (retour à l'env ou non configuré).</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-error-container text-error hover:opacity-90 transition">Supprimer / revenir à l'env</button>
+                    </div>
+                </form>
+                {{end}}
+
+                <form class="svc-form space-y-4" action="/onboarding/wazuh" method="POST"
+                      data-test-url="/api/onboarding/wazuh/test"
+                      data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
+                    <input type="hidden" class="js-force" name="force" value="0">
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium text-on-surface ml-1">URL API Wazuh</label>
+                        <input name="url" type="text" required value="{{.URL}}"
+                            class="js-field js-url w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="https://192.0.2.20:55000">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">Utilisateur</label>
+                            <input name="user" type="text" required value="{{.User}}"
+                                class="js-field js-user w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                placeholder="wazuh-wui">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">Mot de passe {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
+                            <div class="relative">
+                                <input name="password" type="password" {{if not .SecretPresent}}required{{end}}
+                                    class="js-field js-secret input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="{{if .SecretPresent}}••••••••{{else}}mot de passe{{end}}">
+                                {{template "svc-eye-toggle"}}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="js-result hidden p-3 rounded-lg text-sm"></div>
+                    <div class="flex gap-3 pt-1">
+                        {{template "svc-test-btn"}}
+                        {{template "svc-save-btn"}}
+                    </div>
+                    <p class="js-save-hint hidden text-xs text-orange-300 ml-1"></p>
+                </form>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- ---------- AI ---------- -->
+        {{with .AI}}
+        <div class="svc-panel {{if ne $.Selected "ai"}}hidden{{end}}" data-svc-panel="ai">
+            <div class="bg-surface-container border border-outline-variant rounded-xl p-6" style="border-top: 3px solid var(--md-color-primary);" data-service="ai">
+                <div class="flex items-center justify-between mb-5">
+                    <div class="flex items-center gap-3">
+                        <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        </span>
+                        <div>
+                            <h3 class="text-lg font-bold text-on-surface">Enrichissement IA</h3>
+                            <p class="text-xs text-on-surface-variant">Analyse des alertes (Ollama / OpenAI)</p>
+                        </div>
+                    </div>
+                    {{template "svc-badge" .}}
+                </div>
+
+                {{if .EnvImportable}}
+                <form action="/api/onboarding/ai/import-env" method="POST" class="mb-4">
+                    <div class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between gap-3">
+                        <span>Une configuration IA existe dans l'environnement.</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 transition">Importer la config env</button>
+                    </div>
+                </form>
+                {{end}}
+                {{if .CanRollback}}
+                <form action="/api/onboarding/ai/delete" method="POST" class="mb-4"
+                    onsubmit="return confirm('Supprimer la connexion IA enregistrée et revenir à la configuration d\'environnement ?');">
+                    <div class="p-3 rounded-lg bg-surface-container-high border border-outline-variant text-on-surface-variant text-xs flex items-center justify-between gap-3">
+                        <span>Supprimer la connexion en base (retour à l'env ou non configuré).</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-error-container text-error hover:opacity-90 transition">Supprimer / revenir à l'env</button>
+                    </div>
+                </form>
+                {{end}}
+
+                <form class="ai-form space-y-4" action="/onboarding/ai" method="POST"
+                      data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
+                    <input type="hidden" class="js-force" name="force" value="0">
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium text-on-surface ml-1">Fournisseur</label>
+                        <select name="provider"
+                            class="js-provider w-full bg-surface-container border border-outline rounded-xs px-4 py-3 text-on-surface text-sm focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none">
+                            <option value="ollama" {{if eq .Provider "ollama"}}selected{{end}}>Ollama (auto-hébergé)</option>
+                            <option value="openai" {{if eq .Provider "openai"}}selected{{end}}>OpenAI (compatible)</option>
+                        </select>
+                    </div>
+                    <div class="js-ollama-fields space-y-2">
+                        <label class="text-sm font-medium text-on-surface ml-1">URL Ollama</label>
+                        <input name="url" type="text" value="{{.URL}}"
+                            class="js-ai-url w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="http://192.0.2.30:11434">
+                    </div>
+                    <div class="js-openai-fields space-y-4 hidden">
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">URL de base (compatible OpenAI)</label>
+                            <input name="openai_base" type="text" value="{{.OpenAIBaseURL}}"
+                                class="js-openai-base w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                placeholder="https://api.openai.com/v1">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">Clé API {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistrée)</span>{{end}}</label>
+                            <div class="relative">
+                                <input name="api_key" type="password"
+                                    class="js-ai-key input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                    placeholder="{{if .SecretPresent}}••••••••{{else}}sk-…{{end}}">
+                                {{template "svc-eye-toggle"}}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium text-on-surface ml-1">Modèle</label>
+                        <input name="model" type="text" value="{{.Model}}"
+                            class="js-ai-model w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="qwen2.5:3b">
+                    </div>
+                    <div class="js-result hidden p-3 rounded-lg text-sm"></div>
+                    <div class="flex gap-3 pt-1">
+                        {{template "svc-test-btn"}}
+                        {{template "svc-save-btn"}}
+                    </div>
+                    <p class="js-save-hint hidden text-xs text-orange-300 ml-1"></p>
+                </form>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- ---------- Discord ---------- -->
+        {{with .Discord}}
+        <div class="svc-panel {{if ne $.Selected "discord"}}hidden{{end}}" data-svc-panel="discord">
+            <div class="bg-surface-container border border-outline-variant rounded-xl p-6" style="border-top: 3px solid var(--md-color-primary);" data-service="discord">
+                <div class="flex items-center justify-between mb-5">
+                    <div class="flex items-center gap-3">
+                        <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-[#5865F2]/15 text-[#5865F2]">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z" /></svg>
+                        </span>
+                        <div>
+                            <h3 class="text-lg font-bold text-on-surface">Discord</h3>
+                            <p class="text-xs text-on-surface-variant">Bot — notifications &amp; alertes</p>
+                        </div>
+                    </div>
+                    {{template "svc-badge" .}}
+                </div>
+
+                {{if .EnvImportable}}
+                <form action="/api/onboarding/discord/import-env" method="POST" class="mb-4">
+                    <div class="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between gap-3">
+                        <span>Une configuration Discord existe dans l'environnement.</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 transition">Importer la config env</button>
+                    </div>
+                </form>
+                {{end}}
+                {{if .CanRollback}}
+                <form action="/api/onboarding/discord/delete" method="POST" class="mb-4"
+                    onsubmit="return confirm('Supprimer la connexion Discord enregistrée et revenir à la configuration d\'environnement ?');">
+                    <div class="p-3 rounded-lg bg-surface-container-high border border-outline-variant text-on-surface-variant text-xs flex items-center justify-between gap-3">
+                        <span>Supprimer la connexion en base (retour à l'env ou non configuré).</span>
+                        <button type="submit" class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold bg-error-container text-error hover:opacity-90 transition">Supprimer / revenir à l'env</button>
+                    </div>
+                </form>
+                {{end}}
+
+                <form class="discord-form space-y-4" action="/onboarding/discord" method="POST"
+                      data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
+                    <input type="hidden" class="js-force" name="force" value="0">
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium text-on-surface ml-1">Token du bot {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
+                        <div class="relative">
+                            <input name="token" type="password" {{if not .SecretPresent}}required{{end}}
+                                class="js-token input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                placeholder="{{if .SecretPresent}}••••••••{{else}}token du bot Discord{{end}}">
+                            {{template "svc-eye-toggle"}}
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium text-on-surface ml-1">Salon principal (alertes SOAR)</label>
+                        <input name="channel_id" type="text" required value="{{.ChannelID}}"
+                            class="js-channel w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                            placeholder="123456789012345678">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">Salon Auth <span class="text-on-surface-variant text-xs">(optionnel)</span></label>
+                            <input name="auth_channel_id" type="text" value="{{.AuthChannelID}}"
+                                class="js-auth-channel w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                placeholder="défaut : salon principal">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-on-surface ml-1">Salon Ansible <span class="text-on-surface-variant text-xs">(optionnel)</span></label>
+                            <input name="ansible_channel_id" type="text" value="{{.AnsibleChannelID}}"
+                                class="js-ansible-channel w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                                placeholder="défaut : salon principal">
+                        </div>
+                    </div>
+                    <div class="js-result hidden p-3 rounded-lg text-sm"></div>
+                    <div class="flex gap-3 pt-1">
+                        <button type="button" class="js-test flex-1 flex justify-center items-center gap-2 py-3 px-4 rounded-full text-sm font-bold bg-surface-container-high border border-outline text-on-surface hover:shadow-md focus:outline-none transition">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            Tester le token
+                        </button>
+                        {{template "svc-save-btn"}}
+                    </div>
+                    <p class="js-save-hint hidden text-xs text-orange-300 ml-1"></p>
+                </form>
+
+                {{if or (eq .Source "db") (eq .Source "env")}}
+                <div class="mt-4 pt-4 border-t border-outline-variant">
+                    <button type="button" id="discord-send-test"
+                        class="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-full text-sm font-semibold bg-surface-container-high border border-outline text-on-surface hover:shadow-md focus:outline-none transition">
+                        Envoyer un message de test
+                    </button>
+                    <p id="discord-send-test-result" class="hidden text-xs mt-2 ml-1"></p>
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
+    </div>
+</div>
+{{end}}
+
+{{/* Shared form controls reused by every service panel. */}}
+{{define "svc-eye-toggle"}}
+<button type="button" data-toggle-password tabindex="-1"
+    class="absolute inset-y-0 right-0 pr-3 flex items-center text-on-surface-variant hover:text-on-surface focus:outline-none"
+    aria-label="Afficher/masquer">
+    <svg class="h-5 w-5 icon-eye" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+    <svg class="h-5 w-5 icon-eye-off hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L14.12 14.12m0 0L21 21m-6.88-6.88a3 3 0 01-4.242-4.242" />
+    </svg>
+</button>
+{{end}}
+
+{{define "svc-test-btn"}}
+<button type="button" class="js-test flex-1 flex justify-center items-center gap-2 py-3 px-4 rounded-full text-sm font-bold bg-surface-container-high border border-outline text-on-surface hover:shadow-md focus:outline-none transition">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+    Tester
+</button>
+{{end}}
+
+{{define "svc-save-btn"}}
+<button type="submit" class="js-save flex-1 flex justify-center py-3 px-4 rounded-full text-sm font-bold bg-primary text-on-primary opacity-50 cursor-not-allowed hover:shadow-md focus:outline-none transition" disabled>
+    Enregistrer
+</button>
+{{end}}
+
+{{define "settings-services-js"}}
+<script>
+    // ---- Master-detail: swap the visible service panel + active tab (no reload). ----
+    (function () {
+        var tabs = document.querySelectorAll('.svc-tab');
+        var panels = document.querySelectorAll('.svc-panel');
+        function select(key) {
+            panels.forEach(function (p) { p.classList.toggle('hidden', p.getAttribute('data-svc-panel') !== key); });
+            tabs.forEach(function (t) {
+                var on = t.getAttribute('data-svc-tab') === key;
+                t.classList.toggle('bg-surface-container-high', on);
+                t.classList.toggle('border-primary', on);
+                t.classList.toggle('border-transparent', !on);
+            });
+            if (window.history && window.history.replaceState) { window.history.replaceState(null, '', '#' + key); }
+        }
+        tabs.forEach(function (t) { t.addEventListener('click', function () { select(t.getAttribute('data-svc-tab')); }); });
+        // Honour a deep-link hash if it points at a real panel (else keep the server-rendered selection).
+        var hash = (window.location.hash || '').replace('#', '');
+        if (hash && document.querySelector('[data-svc-panel="' + hash + '"]')) { select(hash); }
+    })();
+
+    // ---- Password visibility toggle (per field). ----
+    document.querySelectorAll('[data-toggle-password]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var input = btn.parentElement.querySelector('input');
+            if (!input) return;
+            var eye = btn.querySelector('.icon-eye');
+            var eyeOff = btn.querySelector('.icon-eye-off');
+            if (input.type === 'password') {
+                input.type = 'text'; eye.classList.add('hidden'); eyeOff.classList.remove('hidden');
+            } else {
+                input.type = 'password'; eyeOff.classList.add('hidden'); eye.classList.remove('hidden');
+            }
+        });
+    });
+
+    // ---- Generic Test→enable-Save wiring for every Basic-auth service (.svc-form). ----
+    document.querySelectorAll('.svc-form').forEach(function (form) {
+        var testURL = form.getAttribute('data-test-url');
+        var secretPresent = form.getAttribute('data-secret-present') === 'true';
+        var saveBtn = form.querySelector('.js-save');
+        var testBtn = form.querySelector('.js-test');
+        var forceField = form.querySelector('.js-force');
+        var resultPanel = form.querySelector('.js-result');
+        var saveHint = form.querySelector('.js-save-hint');
+
+        function enableSave(enable) {
+            saveBtn.disabled = !enable;
+            if (enable) { saveBtn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+            else { saveBtn.classList.add('opacity-50', 'cursor-not-allowed'); }
+        }
+        function showResult(cls, html) {
+            resultPanel.className = 'js-result p-3 rounded-lg text-sm ' + cls;
+            resultPanel.innerHTML = html;
+            resultPanel.classList.remove('hidden');
+        }
+
+        form.querySelectorAll('.js-field').forEach(function (input) {
+            input.addEventListener('input', function () {
+                enableSave(false);
+                forceField.value = '0';
+                saveHint.classList.add('hidden');
+                resultPanel.classList.add('hidden');
+            });
+        });
+
+        testBtn.addEventListener('click', function () {
+            var url = form.querySelector('.js-url').value.trim();
+            var user = form.querySelector('.js-user').value.trim();
+            var secret = form.querySelector('.js-secret').value;
+
+            if (!url || !user || (!secret && !secretPresent)) {
+                showResult('bg-error-container text-error border border-error-container',
+                    'URL, utilisateur et mot de passe sont requis pour tester.');
+                return;
+            }
+
+            testBtn.disabled = true;
+            var oldHTML = testBtn.innerHTML;
+            testBtn.textContent = 'Test en cours…';
+            forceField.value = '0';
+            saveHint.classList.add('hidden');
+
+            fetch(testURL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url, user: user, password: secret })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.ok) {
+                        showResult('bg-green-500/10 border border-green-500/20 text-green-300',
+                            '✓ Connexion établie. Vous pouvez enregistrer.');
+                        enableSave(true);
+                    } else if (data.kind === 'network') {
+                        showResult('bg-orange-500/10 border border-orange-500/20 text-orange-300',
+                            '⚠ ' + (data.error || 'Erreur réseau transitoire.'));
+                        enableSave(true);
+                        forceField.value = '1';
+                        saveHint.textContent = 'Erreur réseau transitoire — « Enregistrer » forcera la sauvegarde (re-test côté serveur).';
+                        saveHint.classList.remove('hidden');
+                    } else {
+                        showResult('bg-error-container text-error border border-error-container',
+                            '✕ ' + (data.error || 'Test échoué.'));
+                        enableSave(false);
+                    }
+                })
+                .catch(function () {
+                    showResult('bg-error-container text-error border border-error-container',
+                        '✕ Impossible de contacter le serveur.');
+                    enableSave(false);
+                })
+                .finally(function () {
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = oldHTML;
+                });
+        });
+    });
+
+    // ---- AI panel: provider toggle + its own Test→enable-Save wiring. ----
+    document.querySelectorAll('.ai-form').forEach(function (form) {
+        var secretPresent = form.getAttribute('data-secret-present') === 'true';
+        var providerSel = form.querySelector('.js-provider');
+        var ollamaFields = form.querySelector('.js-ollama-fields');
+        var openaiFields = form.querySelector('.js-openai-fields');
+        var urlInput = form.querySelector('.js-ai-url');
+        var baseInput = form.querySelector('.js-openai-base');
+        var keyInput = form.querySelector('.js-ai-key');
+        var modelInput = form.querySelector('.js-ai-model');
+        var saveBtn = form.querySelector('.js-save');
+        var testBtn = form.querySelector('.js-test');
+        var forceField = form.querySelector('.js-force');
+        var resultPanel = form.querySelector('.js-result');
+        var saveHint = form.querySelector('.js-save-hint');
+
+        function isOpenAI() { return providerSel.value === 'openai'; }
+        function syncProviderUI() {
+            if (isOpenAI()) {
+                ollamaFields.classList.add('hidden');
+                openaiFields.classList.remove('hidden');
+            } else {
+                openaiFields.classList.add('hidden');
+                ollamaFields.classList.remove('hidden');
+            }
+        }
+        function enableSave(enable) {
+            saveBtn.disabled = !enable;
+            if (enable) { saveBtn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+            else { saveBtn.classList.add('opacity-50', 'cursor-not-allowed'); }
+        }
+        function showResult(cls, html) {
+            resultPanel.className = 'js-result p-3 rounded-lg text-sm ' + cls;
+            resultPanel.innerHTML = html;
+            resultPanel.classList.remove('hidden');
+        }
+        function invalidate() {
+            enableSave(false);
+            forceField.value = '0';
+            saveHint.classList.add('hidden');
+            resultPanel.classList.add('hidden');
+        }
+
+        syncProviderUI();
+        providerSel.addEventListener('change', function () { syncProviderUI(); invalidate(); });
+        [urlInput, baseInput, keyInput, modelInput].forEach(function (el) {
+            if (el) { el.addEventListener('input', invalidate); }
+        });
+
+        testBtn.addEventListener('click', function () {
+            var provider = providerSel.value;
+            var payload = { provider: provider, model: modelInput.value.trim() };
+
+            if (isOpenAI()) {
+                payload.api_key = keyInput.value;
+                payload.openai_base = baseInput.value.trim();
+                if (!payload.api_key && !secretPresent) {
+                    showResult('bg-error-container text-error border border-error-container',
+                        'La clé API OpenAI est requise pour tester.');
+                    return;
+                }
+            } else {
+                payload.url = urlInput.value.trim();
+                if (!payload.url) {
+                    showResult('bg-error-container text-error border border-error-container',
+                        "L'URL Ollama est requise pour tester.");
+                    return;
+                }
+            }
+
+            testBtn.disabled = true;
+            var oldHTML = testBtn.innerHTML;
+            testBtn.textContent = 'Test en cours…';
+            forceField.value = '0';
+            saveHint.classList.add('hidden');
+
+            fetch('/api/onboarding/ai/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.ok) {
+                        showResult('bg-green-500/10 border border-green-500/20 text-green-300',
+                            '✓ Connexion établie. Vous pouvez enregistrer.');
+                        enableSave(true);
+                    } else if (data.kind === 'network') {
+                        showResult('bg-orange-500/10 border border-orange-500/20 text-orange-300',
+                            '⚠ ' + (data.error || 'Erreur réseau transitoire.'));
+                        enableSave(true);
+                        forceField.value = '1';
+                        saveHint.textContent = 'Erreur réseau transitoire — « Enregistrer » forcera la sauvegarde (re-test côté serveur).';
+                        saveHint.classList.remove('hidden');
+                    } else {
+                        showResult('bg-error-container text-error border border-error-container',
+                            '✕ ' + (data.error || 'Test échoué.'));
+                        enableSave(false);
+                    }
+                })
+                .catch(function () {
+                    showResult('bg-error-container text-error border border-error-container',
+                        '✕ Impossible de contacter le serveur.');
+                    enableSave(false);
+                })
+                .finally(function () {
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = oldHTML;
+                });
+        });
+    });
+
+    // ---- Discord panel: token + channels Test→enable-Save wiring. ----
+    document.querySelectorAll('.discord-form').forEach(function (form) {
+        var secretPresent = form.getAttribute('data-secret-present') === 'true';
+        var tokenInput = form.querySelector('.js-token');
+        var channelInput = form.querySelector('.js-channel');
+        var authInput = form.querySelector('.js-auth-channel');
+        var ansibleInput = form.querySelector('.js-ansible-channel');
+        var saveBtn = form.querySelector('.js-save');
+        var testBtn = form.querySelector('.js-test');
+        var forceField = form.querySelector('.js-force');
+        var resultPanel = form.querySelector('.js-result');
+        var saveHint = form.querySelector('.js-save-hint');
+
+        function enableSave(enable) {
+            saveBtn.disabled = !enable;
+            if (enable) { saveBtn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+            else { saveBtn.classList.add('opacity-50', 'cursor-not-allowed'); }
+        }
+        function showResult(cls, html) {
+            resultPanel.className = 'js-result p-3 rounded-lg text-sm ' + cls;
+            resultPanel.innerHTML = html;
+            resultPanel.classList.remove('hidden');
+        }
+        function invalidate() {
+            enableSave(false);
+            forceField.value = '0';
+            saveHint.classList.add('hidden');
+            resultPanel.classList.add('hidden');
+        }
+
+        [tokenInput, channelInput, authInput, ansibleInput].forEach(function (el) {
+            if (el) { el.addEventListener('input', invalidate); }
+        });
+
+        testBtn.addEventListener('click', function () {
+            var token = tokenInput.value;
+            var channel = channelInput.value.trim();
+
+            if (!token && !secretPresent) {
+                showResult('bg-error-container text-error border border-error-container',
+                    'Le token du bot est requis pour tester.');
+                return;
+            }
+            if (!channel) {
+                showResult('bg-error-container text-error border border-error-container',
+                    "L'identifiant du salon principal est requis.");
+                return;
+            }
+
+            testBtn.disabled = true;
+            var oldHTML = testBtn.innerHTML;
+            testBtn.textContent = 'Test en cours…';
+            forceField.value = '0';
+            saveHint.classList.add('hidden');
+
+            fetch('/api/onboarding/discord/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token, channel_id: channel })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.ok) {
+                        showResult('bg-green-500/10 border border-green-500/20 text-green-300',
+                            '✓ Token valide. Vous pouvez enregistrer.');
+                        enableSave(true);
+                    } else if (data.kind === 'network') {
+                        showResult('bg-orange-500/10 border border-orange-500/20 text-orange-300',
+                            '⚠ ' + (data.error || 'Erreur réseau transitoire.'));
+                        enableSave(true);
+                        forceField.value = '1';
+                        saveHint.textContent = 'Erreur réseau transitoire — « Enregistrer » forcera la sauvegarde (re-test côté serveur).';
+                        saveHint.classList.remove('hidden');
+                    } else {
+                        showResult('bg-error-container text-error border border-error-container',
+                            '✕ ' + (data.error || 'Test échoué.'));
+                        enableSave(false);
+                    }
+                })
+                .catch(function () {
+                    showResult('bg-error-container text-error border border-error-container',
+                        '✕ Impossible de contacter le serveur.');
+                    enableSave(false);
+                })
+                .finally(function () {
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = oldHTML;
+                });
+        });
+    });
+
+    // ---- "Send a real test message": fires through the CURRENT live bot. ----
+    (function () {
+        var btn = document.getElementById('discord-send-test');
+        if (!btn) return;
+        var out = document.getElementById('discord-send-test-result');
+        btn.addEventListener('click', function () {
+            btn.disabled = true;
+            var oldText = btn.textContent;
+            btn.textContent = 'Envoi…';
+            if (out) { out.classList.add('hidden'); }
+            fetch('/api/soar/discord/test', { method: 'POST' })
+                .then(function (r) {
+                    if (out) {
+                        out.classList.remove('hidden');
+                        if (r.ok) {
+                            out.className = 'text-xs mt-2 ml-1 text-green-300';
+                            out.textContent = '✓ Message de test envoyé (vérifiez le salon Discord).';
+                        } else {
+                            out.className = 'text-xs mt-2 ml-1 text-error';
+                            out.textContent = '✕ Échec de l\'envoi (Discord non configuré ou injoignable).';
+                        }
+                    }
+                })
+                .catch(function () {
+                    if (out) {
+                        out.classList.remove('hidden');
+                        out.className = 'text-xs mt-2 ml-1 text-error';
+                        out.textContent = '✕ Impossible de contacter le serveur.';
+                    }
+                })
+                .finally(function () {
+                    btn.disabled = false;
+                    btn.textContent = oldText;
+                });
+        });
+    })();
+</script>
+{{end}}
