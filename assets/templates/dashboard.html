@@ -57,7 +57,7 @@
             <!-- Non-blocking onboarding banner: lists OPTIONAL services not yet
                  configured (Wazuh / IA / Discord). Proxmox has its own hard gate.
                  Dismissable for the session (sessionStorage), never blocks the page. -->
-            {{if .OnboardingHints}}
+            {{if and .IsAdmin .OnboardingHints}}
             <div id="onboarding-banner" role="status"
                 class="mb-6 rounded-xl border border-outline-variant bg-surface-container px-5 py-4 flex items-start justify-between gap-4"
                 style="border-left:3px solid var(--md-color-primary);">

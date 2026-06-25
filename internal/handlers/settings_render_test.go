@@ -89,7 +89,11 @@ func TestSettingsHubSectionsRender(t *testing.T) {
 				d["MFAEnabled"] = false
 				return d
 			}(),
-			wantStr: "Paramètres",
+			// Marqueur EXCLUSIF au corps de la section (settings-securite), surtout PAS
+			// "Paramètres" qui est rendu inconditionnellement par le header/title du
+			// scaffold AVANT le dispatch : sinon le test resterait vert même si la
+			// section securite ne rendait rien (régression 500/section-vide non détectée).
+			wantStr: "Authentification à deux facteurs",
 		},
 		{
 			name: "services",
@@ -130,6 +134,77 @@ func TestSettingsHubSectionsRender(t *testing.T) {
 			}
 			if !strings.Contains(out, tc.wantStr) {
 				t.Fatalf("section %q body missing expected marker %q (dispatch likely rendered the wrong/no section)", tc.name, tc.wantStr)
+			}
+		})
+	}
+}
+
+// TestRechromedOnboardingPagesRender extends the anti-500 guard to the two onboarding
+// pages re-chromed into the Paramètres hub: onboarding-proxmox.html (/parametres/proxmox)
+// and onboarding-canal.html (/parametres/sauvegarde). They are NOT settings.html sections
+// — they render their own scaffold but now include {{template "settings-nav" .}}, so they
+// MUST carry the hub chrome keys (Active/IsAdmin/HeaderSubtitle) or settings-nav breaks.
+// The data maps below mirror renderOnboardingProxmox / renderChannel exactly.
+func TestRechromedOnboardingPagesRender(t *testing.T) {
+	tmpl := loadSettingsTemplates(t)
+
+	cases := []struct {
+		name     string
+		template string
+		data     map[string]any
+		wantStr  string
+	}{
+		{
+			name:     "proxmox",
+			template: "onboarding-proxmox.html",
+			data: map[string]any{
+				"URL": "https://192.0.2.10:8006", "Node": "node", "TokenID": "id@pam!t",
+				"Storage": "local", "Bridge": "vmbr0", "SandboxBridge": "vmbr1",
+				"SandboxVlan": 99, "RestoreStorage": "local", "CryptRemote": "gcrypt:",
+				"SecretPresent": true, "Configured": true, "Source": "db",
+				"EnvImportable": false, "EnvPresent": false, "CanRollback": true,
+				"Error": "", "Success": "", "User": "alice",
+				"Active": "proxmox", "IsAdmin": true,
+				"HeaderSubtitle": "Reliez GoaCore à votre hyperviseur Proxmox VE.",
+			},
+			wantStr: "Proxmox",
+		},
+		{
+			name:     "canal",
+			template: "onboarding-canal.html",
+			data: map[string]any{
+				"User": "alice", "Error": "", "Success": "",
+				"Channel": channelCardData{
+					Configured: true, Source: "db", Status: "ok", SecretPresent: true,
+					Host: "192.0.2.10", User: "goabackup", Fingerprint: "SHA256:abc",
+					KeyType: "ssh-ed25519", HasInAppKey: true,
+				},
+				"InstallerURL": "https://192.0.2.20:8443/api/onboarding/canal/installer.sh",
+				"ChannelUser":  "goabackup", "RevokeCommand": "rm -f ~goabackup/.ssh/authorized_keys",
+				"Active": "sauvegarde", "IsAdmin": true,
+				"HeaderSubtitle": "Canal de sauvegarde et stockage cloud (off-site).",
+			},
+			wantStr: "sauvegarde",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&buf, tc.template, tc.data); err != nil {
+				t.Fatalf("re-chromed page %q failed to render: %v", tc.template, err)
+			}
+			out := buf.String()
+			if len(out) == 0 {
+				t.Fatalf("re-chromed page %q rendered an empty body", tc.template)
+			}
+			// settings-nav is the shared hub chrome the re-chrome introduced; its presence
+			// proves the page carries the chrome keys without a render error.
+			if !strings.Contains(out, "/parametres/services") {
+				t.Fatalf("re-chromed page %q missing the hub nav (settings-nav not rendered — chrome keys likely absent)", tc.template)
+			}
+			if !strings.Contains(strings.ToLower(out), strings.ToLower(tc.wantStr)) {
+				t.Fatalf("re-chromed page %q body missing expected marker %q", tc.template, tc.wantStr)
 			}
 		})
 	}

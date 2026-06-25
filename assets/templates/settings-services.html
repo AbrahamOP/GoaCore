@@ -106,22 +106,22 @@
                       data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
                     <input type="hidden" class="js-force" name="force" value="0">
                     <div class="space-y-2">
-                        <label class="text-sm font-medium text-on-surface ml-1">URL Indexer</label>
-                        <input name="url" type="text" required value="{{.URL}}"
+                        <label for="svc-wazuh-indexer-url" class="text-sm font-medium text-on-surface ml-1">URL Indexer</label>
+                        <input id="svc-wazuh-indexer-url" name="url" type="text" required value="{{.URL}}"
                             class="js-field js-url w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                             placeholder="https://192.0.2.20:9200">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">Utilisateur</label>
-                            <input name="user" type="text" required value="{{.User}}"
+                            <label for="svc-wazuh-indexer-user" class="text-sm font-medium text-on-surface ml-1">Utilisateur</label>
+                            <input id="svc-wazuh-indexer-user" name="user" type="text" required value="{{.User}}"
                                 class="js-field js-user w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                 placeholder="admin">
                         </div>
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">Mot de passe {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
+                            <label for="svc-wazuh-indexer-password" class="text-sm font-medium text-on-surface ml-1">Mot de passe {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
                             <div class="relative">
-                                <input name="password" type="password" {{if not .SecretPresent}}required{{end}}
+                                <input id="svc-wazuh-indexer-password" name="password" type="password" {{if not .SecretPresent}}required{{end}}
                                     class="js-field js-secret input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                     placeholder="{{if .SecretPresent}}••••••••{{else}}mot de passe{{end}}">
                                 {{template "svc-eye-toggle"}}
@@ -179,22 +179,22 @@
                       data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
                     <input type="hidden" class="js-force" name="force" value="0">
                     <div class="space-y-2">
-                        <label class="text-sm font-medium text-on-surface ml-1">URL API Wazuh</label>
-                        <input name="url" type="text" required value="{{.URL}}"
+                        <label for="svc-wazuh-url" class="text-sm font-medium text-on-surface ml-1">URL API Wazuh</label>
+                        <input id="svc-wazuh-url" name="url" type="text" required value="{{.URL}}"
                             class="js-field js-url w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                             placeholder="https://192.0.2.20:55000">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">Utilisateur</label>
-                            <input name="user" type="text" required value="{{.User}}"
+                            <label for="svc-wazuh-user" class="text-sm font-medium text-on-surface ml-1">Utilisateur</label>
+                            <input id="svc-wazuh-user" name="user" type="text" required value="{{.User}}"
                                 class="js-field js-user w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                 placeholder="wazuh-wui">
                         </div>
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">Mot de passe {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
+                            <label for="svc-wazuh-password" class="text-sm font-medium text-on-surface ml-1">Mot de passe {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
                             <div class="relative">
-                                <input name="password" type="password" {{if not .SecretPresent}}required{{end}}
+                                <input id="svc-wazuh-password" name="password" type="password" {{if not .SecretPresent}}required{{end}}
                                     class="js-field js-secret input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                     placeholder="{{if .SecretPresent}}••••••••{{else}}mot de passe{{end}}">
                                 {{template "svc-eye-toggle"}}
@@ -251,30 +251,30 @@
                       data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
                     <input type="hidden" class="js-force" name="force" value="0">
                     <div class="space-y-2">
-                        <label class="text-sm font-medium text-on-surface ml-1">Fournisseur</label>
-                        <select name="provider"
+                        <label for="svc-ai-provider" class="text-sm font-medium text-on-surface ml-1">Fournisseur</label>
+                        <select id="svc-ai-provider" name="provider"
                             class="js-provider w-full bg-surface-container border border-outline rounded-xs px-4 py-3 text-on-surface text-sm focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none">
                             <option value="ollama" {{if eq .Provider "ollama"}}selected{{end}}>Ollama (auto-hébergé)</option>
                             <option value="openai" {{if eq .Provider "openai"}}selected{{end}}>OpenAI (compatible)</option>
                         </select>
                     </div>
                     <div class="js-ollama-fields space-y-2">
-                        <label class="text-sm font-medium text-on-surface ml-1">URL Ollama</label>
-                        <input name="url" type="text" value="{{.URL}}"
+                        <label for="svc-ai-url" class="text-sm font-medium text-on-surface ml-1">URL Ollama</label>
+                        <input id="svc-ai-url" name="url" type="text" value="{{.URL}}"
                             class="js-ai-url w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                             placeholder="http://192.0.2.30:11434">
                     </div>
                     <div class="js-openai-fields space-y-4 hidden">
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">URL de base (compatible OpenAI)</label>
-                            <input name="openai_base" type="text" value="{{.OpenAIBaseURL}}"
+                            <label for="svc-ai-openai-base" class="text-sm font-medium text-on-surface ml-1">URL de base (compatible OpenAI)</label>
+                            <input id="svc-ai-openai-base" name="openai_base" type="text" value="{{.OpenAIBaseURL}}"
                                 class="js-openai-base w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                 placeholder="https://api.openai.com/v1">
                         </div>
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">Clé API {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistrée)</span>{{end}}</label>
+                            <label for="svc-ai-key" class="text-sm font-medium text-on-surface ml-1">Clé API {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistrée)</span>{{end}}</label>
                             <div class="relative">
-                                <input name="api_key" type="password"
+                                <input id="svc-ai-key" name="api_key" type="password"
                                     class="js-ai-key input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                     placeholder="{{if .SecretPresent}}••••••••{{else}}sk-…{{end}}">
                                 {{template "svc-eye-toggle"}}
@@ -282,8 +282,8 @@
                         </div>
                     </div>
                     <div class="space-y-2">
-                        <label class="text-sm font-medium text-on-surface ml-1">Modèle</label>
-                        <input name="model" type="text" value="{{.Model}}"
+                        <label for="svc-ai-model" class="text-sm font-medium text-on-surface ml-1">Modèle</label>
+                        <input id="svc-ai-model" name="model" type="text" value="{{.Model}}"
                             class="js-ai-model w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                             placeholder="qwen2.5:3b">
                     </div>
@@ -337,30 +337,30 @@
                       data-secret-present="{{if .SecretPresent}}true{{else}}false{{end}}">
                     <input type="hidden" class="js-force" name="force" value="0">
                     <div class="space-y-2">
-                        <label class="text-sm font-medium text-on-surface ml-1">Token du bot {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
+                        <label for="svc-discord-token" class="text-sm font-medium text-on-surface ml-1">Token du bot {{if .SecretPresent}}<span class="text-green-400 text-xs">(enregistré)</span>{{end}}</label>
                         <div class="relative">
-                            <input name="token" type="password" {{if not .SecretPresent}}required{{end}}
+                            <input id="svc-discord-token" name="token" type="password" {{if not .SecretPresent}}required{{end}}
                                 class="js-token input-with-eye w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm tracking-wider placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                 placeholder="{{if .SecretPresent}}••••••••{{else}}token du bot Discord{{end}}">
                             {{template "svc-eye-toggle"}}
                         </div>
                     </div>
                     <div class="space-y-2">
-                        <label class="text-sm font-medium text-on-surface ml-1">Salon principal (alertes SOAR)</label>
-                        <input name="channel_id" type="text" required value="{{.ChannelID}}"
+                        <label for="svc-discord-channel" class="text-sm font-medium text-on-surface ml-1">Salon principal (alertes SOAR)</label>
+                        <input id="svc-discord-channel" name="channel_id" type="text" required value="{{.ChannelID}}"
                             class="js-channel w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                             placeholder="123456789012345678">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">Salon Auth <span class="text-on-surface-variant text-xs">(optionnel)</span></label>
-                            <input name="auth_channel_id" type="text" value="{{.AuthChannelID}}"
+                            <label for="svc-discord-auth-channel" class="text-sm font-medium text-on-surface ml-1">Salon Auth <span class="text-on-surface-variant text-xs">(optionnel)</span></label>
+                            <input id="svc-discord-auth-channel" name="auth_channel_id" type="text" value="{{.AuthChannelID}}"
                                 class="js-auth-channel w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                 placeholder="défaut : salon principal">
                         </div>
                         <div class="space-y-2">
-                            <label class="text-sm font-medium text-on-surface ml-1">Salon Ansible <span class="text-on-surface-variant text-xs">(optionnel)</span></label>
-                            <input name="ansible_channel_id" type="text" value="{{.AnsibleChannelID}}"
+                            <label for="svc-discord-ansible-channel" class="text-sm font-medium text-on-surface ml-1">Salon Ansible <span class="text-on-surface-variant text-xs">(optionnel)</span></label>
+                            <input id="svc-discord-ansible-channel" name="ansible_channel_id" type="text" value="{{.AnsibleChannelID}}"
                                 class="js-ansible-channel w-full bg-transparent border border-outline rounded-xs px-4 py-3 text-on-surface text-sm placeholder-on-surface-variant focus:border-primary focus:ring-2 focus:ring-primary focus:outline-none"
                                 placeholder="défaut : salon principal">
                         </div>
