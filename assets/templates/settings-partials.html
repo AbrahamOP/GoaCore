@@ -10,68 +10,64 @@
    ============================================================================ */}}
 
 {{define "settings-nav"}}
-<nav class="lg:w-60 flex-shrink-0 w-full">
-    <div class="bg-surface-container border border-outline-variant rounded-xl p-3 lg:sticky lg:top-6 space-y-4">
+{{/* Barre d'onglets HORIZONTALE (en ligne) du hub Paramètres. Les deux groupes
+     (Infrastructure, admin-only / Compte) sont sur une seule rangée, séparés par un
+     trait vertical ; scroll horizontal sur petit écran. L'onglet actif est marqué par
+     un fond surface-container-high + texte primary (équivalent en ligne de l'ancien
+     border-l de la sidebar). Les liens/rôles/Active sont identiques à l'ancienne nav. */}}
+<nav class="w-full">
+    <div class="bg-surface-container border border-outline-variant rounded-xl p-1.5 flex items-center gap-1 overflow-x-auto">
         {{if .IsAdmin}}
-        <div>
-            <p class="px-3 text-[11px] font-semibold text-primary uppercase tracking-wider mb-2">Infrastructure</p>
-            <div class="space-y-1">
-                <a href="/parametres/services"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "services"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
-                    <svg class="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m6.828-1.828a4 4 0 010-5.656l3-3a4 4 0 015.656 5.656l-1.5 1.5" />
-                    </svg>
-                    Services
-                </a>
-                <a href="/parametres/proxmox"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "proxmox"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
-                    <svg class="w-5 h-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                    </svg>
-                    Proxmox
-                </a>
-                <a href="/parametres/sauvegarde"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "sauvegarde"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
-                    <svg class="w-5 h-5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                    </svg>
-                    Sauvegarde &amp; cloud
-                </a>
-                <a href="/parametres/utilisateurs"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "utilisateurs"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
-                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                    </svg>
-                    Utilisateurs
-                </a>
-            </div>
-        </div>
+        <a href="/parametres/services"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {{if eq .Active "services"}}bg-surface-container-high text-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high{{end}}">
+            <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m6.828-1.828a4 4 0 010-5.656l3-3a4 4 0 015.656 5.656l-1.5 1.5" />
+            </svg>
+            Services
+        </a>
+        <a href="/parametres/proxmox"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {{if eq .Active "proxmox"}}bg-surface-container-high text-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high{{end}}">
+            <svg class="w-5 h-5 text-orange-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+            </svg>
+            Proxmox
+        </a>
+        <a href="/parametres/sauvegarde"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {{if eq .Active "sauvegarde"}}bg-surface-container-high text-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high{{end}}">
+            <svg class="w-5 h-5 text-teal-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+            </svg>
+            Sauvegarde &amp; cloud
+        </a>
+        <a href="/parametres/utilisateurs"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {{if eq .Active "utilisateurs"}}bg-surface-container-high text-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high{{end}}">
+            <svg class="w-5 h-5 text-purple-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+            Utilisateurs
+        </a>
+        <span class="mx-1 h-6 w-px bg-outline-variant flex-shrink-0" aria-hidden="true"></span>
         {{end}}
-        <div>
-            <p class="px-3 text-[11px] font-semibold text-primary uppercase tracking-wider mb-2">Compte</p>
-            <div class="space-y-1">
-                <a href="/parametres/profil"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "profil"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
-                    <svg class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Mon profil
-                </a>
-                <a href="/parametres/securite"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {{if eq .Active "securite"}}bg-surface-container-high text-on-surface border-l-2 border-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high border-l-2 border-transparent{{end}}">
-                    <svg class="w-5 h-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                    Sécurité (2FA)
-                </a>
-            </div>
-        </div>
+        <a href="/parametres/profil"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {{if eq .Active "profil"}}bg-surface-container-high text-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high{{end}}">
+            <svg class="w-5 h-5 text-cyan-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Mon profil
+        </a>
+        <a href="/parametres/securite"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {{if eq .Active "securite"}}bg-surface-container-high text-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high{{end}}">
+            <svg class="w-5 h-5 text-green-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+            Sécurité (2FA)
+        </a>
     </div>
 </nav>
 {{end}}
