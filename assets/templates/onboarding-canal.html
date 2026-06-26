@@ -111,12 +111,12 @@
                 <span id="step1-num" class="step-num bg-surface-container-high text-on-surface-variant border border-outline">1</span>
                 <div class="text-sm font-semibold text-on-surface">Générer la clé ed25519</div>
             </div>
-            <p class="text-xs text-on-surface-variant mb-4 ml-10">
+            <p class="text-xs text-on-surface-variant mb-4 pl-10">
                 GoaCore génère une paire de clés. La clé <strong>privée</strong> est chiffrée en base et
                 ne quitte jamais le serveur ; seule la clé <strong>publique</strong> part dans le script.
                 {{with .Channel}}{{if .HasInAppKey}}<br><span class="text-orange-300">Une clé existe déjà. La régénérer révoquera l'ancienne : vous devrez relancer le script d'installation sur le Proxmox.</span>{{end}}{{end}}
             </p>
-            <div class="ml-10">
+            <div class="pl-10">
                 <button type="button" id="btn-provision"
                     class="px-5 py-2.5 rounded-full text-sm font-bold bg-primary text-on-primary hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface transition">
                     {{with .Channel}}{{if .HasInAppKey}}Régénérer la clé{{else}}Générer la clé{{end}}{{end}}
@@ -131,12 +131,12 @@
                 <span id="step2-num" class="step-num bg-surface-container-high text-on-surface-variant border border-outline">2</span>
                 <div class="text-sm font-semibold text-on-surface">Exécuter le script en root sur le Proxmox</div>
             </div>
-            <p class="text-xs text-on-surface-variant mb-3 ml-10">
+            <p class="text-xs text-on-surface-variant mb-3 pl-10">
                 Copiez-collez cette commande dans un shell root de votre Proxmox. Elle télécharge le
                 script, vous le faites relire (<code>less</code>) puis l'exécute. Le script est idempotent
                 et vérifie l'empreinte sha256 du helper embarqué.
             </p>
-            <div class="ml-10">
+            <div class="pl-10">
                 <pre id="root-command" class="cmd p-3 rounded-lg bg-surface-container-high border border-outline text-xs text-on-surface select-all">curl -k -fsSL {{.InstallerURL}} -o /tmp/goabackup-install.sh &amp;&amp; less /tmp/goabackup-install.sh &amp;&amp; sudo bash /tmp/goabackup-install.sh</pre>
                 <div class="flex items-center gap-3 mt-2">
                     <button type="button" id="btn-copy"
@@ -158,11 +158,11 @@
                 <span id="step3-num" class="step-num bg-surface-container-high text-on-surface-variant border border-outline">3</span>
                 <div class="text-sm font-semibold text-on-surface">Vérifier l'installation</div>
             </div>
-            <p class="text-xs text-on-surface-variant mb-4 ml-10">
+            <p class="text-xs text-on-surface-variant mb-4 pl-10">
                 Preuve de bout en bout : GoaCore interroge le canal (<code>disk-free</code>) via la
                 commande forcée. Un succès confirme que la clé est acceptée et que le helper répond.
             </p>
-            <div class="ml-10">
+            <div class="pl-10">
                 <button type="button" id="btn-verify"
                     class="px-5 py-2.5 rounded-full text-sm font-bold bg-surface-container-high border border-outline text-on-surface hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface transition">
                     Vérifier l'installation
@@ -184,11 +184,11 @@
                 <span class="step-num bg-surface-container-high text-on-surface-variant border border-outline">4</span>
                 <div class="text-sm font-semibold text-on-surface">Connexion cloud (off-site)</div>
             </div>
-            <p class="text-xs text-on-surface-variant mb-3 ml-10">
+            <p class="text-xs text-on-surface-variant mb-3 pl-10">
                 Le cloud se configure côté Proxmox avec <code>rclone</code> (GoaCore n'écrit jamais
                 votre <code>rclone.conf</code> et reste en push-only). Une recette par backend :
             </p>
-            <div class="ml-10 space-y-3">
+            <div class="pl-10 space-y-3">
                 <div class="p-3 rounded-lg bg-surface-container-high border border-outline-variant text-xs">
                     <div class="font-semibold text-on-surface mb-1">S3 / Backblaze B2 <span class="text-green-300">(recommandé PME — sans navigateur)</span></div>
                     <pre class="cmd text-on-surface-variant">rclone config   # n) nouveau remote → type s3/b2 → clés API → terminé</pre>
@@ -202,7 +202,7 @@
                         Shared Drive.
                     </p>
                 </div>
-                <div class="flex items-center gap-3 pt-1">
+                <div class="flex items-center gap-3 pt-2">
                     <button type="button" id="btn-detect"
                         class="px-4 py-2 rounded-full text-sm font-semibold bg-primary text-on-primary hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface transition">
                         Détecter mes remotes
@@ -216,7 +216,7 @@
         <!-- Prérequis encart -->
         <div class="mb-6 p-4 rounded-xl bg-surface-container-high border border-outline-variant text-xs text-on-surface-variant">
             <div class="font-semibold text-on-surface mb-1">Prérequis réseau (hors script)</div>
-            <ul class="list-disc ml-5 space-y-1">
+            <ul class="list-disc pl-8 space-y-1">
                 <li>OPNsense doit autoriser SSH (port 22) depuis GoaCore vers votre Proxmox.</li>
                 <li>L'utilisateur de service créé est <code>{{.ChannelUser}}</code> (shell /bin/bash, sudo restreint au helper).</li>
                 <li>Pour l'off-site, un <code>rclone.conf</code> root préexistant est requis (étape 4).</li>
@@ -409,7 +409,7 @@
                                     ' / total ' + fmtBytes(r.TotalBytes) + '</li>';
                             }).join('');
                             show(detectResult, 'p-3 rounded-lg text-xs bg-green-500/10 border border-green-500/20 text-green-300',
-                                '✓ Remotes détectés :<ul class="list-disc ml-5 mt-1">' + rows + '</ul>');
+                                '✓ Remotes détectés :<ul class="list-disc pl-8 mt-1">' + rows + '</ul>');
                         })
                         .catch(function () {
                             show(detectResult, 'p-3 rounded-lg text-xs bg-error-container text-error border border-error-container',
