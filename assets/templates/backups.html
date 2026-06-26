@@ -238,26 +238,40 @@
                     </div>
                 </section>
 
-                <!-- Rotation automatique -->
+                <!-- Automatisation -->
                 <section>
-                    <h4 class="text-sm font-semibold text-on-surface mb-1">Rotation automatique</h4>
-                    <p class="text-xs text-on-surface-variant mb-4">Déclenche chaque nuit un test de restauration sur la cible la plus en retard (sandbox VLAN 99). Pris en compte à chaud, sans redéploiement.</p>
-                    <div class="bg-surface-container-high border border-outline-variant rounded-xl p-4 flex flex-wrap items-end gap-6">
-                        <label class="flex items-center gap-3 cursor-pointer select-none">
-                            <input type="checkbox" id="settings-rotation-enabled"
-                                class="w-4 h-4 rounded border-outline-variant bg-transparent text-primary focus:ring-primary focus:ring-2"
-                                {{if .RotationEnabled}}checked{{end}}>
-                            <span class="text-sm text-on-surface">Activer la rotation nocturne</span>
+                    <h4 class="text-sm font-semibold text-on-surface mb-1">Automatisation</h4>
+                    <p class="text-xs text-on-surface-variant mb-4">Pris en compte à chaud, sans redéploiement.</p>
+                    <div class="bg-surface-container-high border border-outline-variant rounded-xl p-4 space-y-4">
+                        <!-- Vérification auto après chaque sauvegarde cloud -->
+                        <label class="flex items-start gap-3 cursor-pointer select-none">
+                            <input type="checkbox" id="settings-auto-verify"
+                                class="mt-0.5 w-4 h-4 rounded border-outline-variant bg-transparent text-primary focus:ring-primary focus:ring-2"
+                                {{if .AutoVerifyEnabled}}checked{{end}}>
+                            <span>
+                                <span class="block text-sm text-on-surface">Vérifier l'intégrité après chaque sauvegarde cloud</span>
+                                <span class="block text-xs text-on-surface-variant mt-0.5">Contrôle automatique (lecture seule) de la copie envoyée dans le cloud. Le rapport apparaît dans « Dernier test » et une alerte est envoyée sur Discord.</span>
+                            </span>
                         </label>
-                        <div>
-                            <label class="block text-xs text-on-surface-variant mb-1" for="settings-rotation-hour">Heure (0-23)</label>
-                            <input type="number" id="settings-rotation-hour" min="0" max="23" value="{{.RotationHour}}"
-                                class="w-24 bg-surface-container text-on-surface text-sm rounded-lg border border-outline-variant px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary">
+                        <div class="border-t border-outline-variant"></div>
+                        <!-- Rotation nocturne (test de restauration réel) -->
+                        <div class="flex flex-wrap items-end gap-6">
+                            <label class="flex items-center gap-3 cursor-pointer select-none">
+                                <input type="checkbox" id="settings-rotation-enabled"
+                                    class="w-4 h-4 rounded border-outline-variant bg-transparent text-primary focus:ring-primary focus:ring-2"
+                                    {{if .RotationEnabled}}checked{{end}}>
+                                <span class="text-sm text-on-surface">Test de restauration nocturne <span class="text-on-surface-variant">(cible la plus en retard, VLAN 99)</span></span>
+                            </label>
+                            <div>
+                                <label class="block text-xs text-on-surface-variant mb-1" for="settings-rotation-hour">Heure (0-23)</label>
+                                <input type="number" id="settings-rotation-hour" min="0" max="23" value="{{.RotationHour}}"
+                                    class="w-24 bg-surface-container text-on-surface text-sm rounded-lg border border-outline-variant px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary">
+                            </div>
+                            <button type="button" onclick="saveRotationSettings(this)"
+                                class="ml-auto px-4 py-2 rounded-full text-sm font-medium bg-primary text-on-primary hover:opacity-90 transition disabled:opacity-50">
+                                Enregistrer
+                            </button>
                         </div>
-                        <button type="button" onclick="saveRotationSettings(this)"
-                            class="ml-auto px-4 py-2 rounded-full text-sm font-medium bg-primary text-on-primary hover:opacity-90 transition disabled:opacity-50">
-                            Enregistrer
-                        </button>
                     </div>
                 </section>
 
@@ -781,6 +795,7 @@
 
             window.saveRotationSettings = async function (btn) {
                 const enabled = document.getElementById('settings-rotation-enabled').checked;
+                const autoVerify = document.getElementById('settings-auto-verify').checked;
                 const hour = parseInt(document.getElementById('settings-rotation-hour').value, 10);
                 if (isNaN(hour) || hour < 0 || hour > 23) {
                     toast('Heure invalide (0-23)', 'error');
@@ -791,10 +806,10 @@
                     const res = await fetch('/api/backups/settings', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ rotation_enabled: enabled, rotation_hour: hour })
+                        body: JSON.stringify({ rotation_enabled: enabled, rotation_hour: hour, auto_verify_enabled: autoVerify })
                     });
                     if (!res.ok) throw new Error((await res.text()) || ('HTTP ' + res.status));
-                    toast('Rotation enregistrée', 'success');
+                    toast('Paramètres enregistrés', 'success');
                     setTimeout(() => window.location.reload(), 800);
                 } catch (e) {
                     toast('Échec : ' + e.message, 'error');

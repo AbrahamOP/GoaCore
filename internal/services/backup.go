@@ -367,6 +367,9 @@ func (s *BackupService) Dashboard() ([]models.BackupTargetView, models.BackupSum
 type BackupSettings struct {
 	RotationEnabled bool
 	RotationHour    int
+	// AutoVerifyEnabled : si vrai, une vérification d'intégrité (N1, lecture seule)
+	// est lancée automatiquement après chaque sauvegarde cloud réussie.
+	AutoVerifyEnabled bool
 }
 
 // validHealthcheckTypes is the closed set of healthcheck strategies a target can
@@ -416,9 +419,11 @@ func validateRotationHour(hour int) error {
 // erroring, so the worker never crashes on a missing row.
 func (s *BackupService) GetSettings() (BackupSettings, error) {
 	var bs BackupSettings
+	// COALESCE : la colonne auto_verify_enabled peut être absente d'une table très
+	// ancienne le temps que la migration ADD COLUMN passe ; on reste robuste.
 	err := s.db.QueryRow(
-		`SELECT rotation_enabled, rotation_hour FROM backup_settings WHERE id = 1`).
-		Scan(&bs.RotationEnabled, &bs.RotationHour)
+		`SELECT rotation_enabled, rotation_hour, COALESCE(auto_verify_enabled, FALSE) FROM backup_settings WHERE id = 1`).
+		Scan(&bs.RotationEnabled, &bs.RotationHour, &bs.AutoVerifyEnabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return BackupSettings{RotationEnabled: false, RotationHour: 4}, nil
 	}
@@ -430,17 +435,32 @@ func (s *BackupService) GetSettings() (BackupSettings, error) {
 
 // SetSettings updates the global rotation settings (row id=1). The hour is
 // validated to 0-23 before any write.
-func (s *BackupService) SetSettings(enabled bool, hour int) error {
+func (s *BackupService) SetSettings(enabled bool, hour int, autoVerify bool) error {
 	if err := validateRotationHour(hour); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(
-		`UPDATE backup_settings SET rotation_enabled = ?, rotation_hour = ? WHERE id = 1`,
-		enabled, hour)
+		`UPDATE backup_settings SET rotation_enabled = ?, rotation_hour = ?, auto_verify_enabled = ? WHERE id = 1`,
+		enabled, hour, autoVerify)
 	if err != nil {
 		return fmt.Errorf("set backup settings: %w", err)
 	}
 	return nil
+}
+
+// maybeAutoVerify lance une vérification d'intégrité N1 (cryptcheck off-site, lecture
+// seule) sur la cible si l'option est active. Appelé après une sauvegarde cloud
+// réussie. Best-effort : un test déjà en cours (ErrRestoreTestInProgress) ou une erreur
+// est seulement loggé et ne perturbe jamais le flux de sauvegarde. Le rapport (UI +
+// Discord) est produit par RunRestoreTest comme pour un test manuel.
+func (s *BackupService) maybeAutoVerify(targetID int, name string) {
+	bs, err := s.GetSettings()
+	if err != nil || !bs.AutoVerifyEnabled {
+		return
+	}
+	if _, terr := s.RunRestoreTest(targetID, "N1", "auto (après sauvegarde)"); terr != nil {
+		slog.Warn("backup: auto-verify N1 non lancé", "target_id", targetID, "name", name, "error", terr)
+	}
 }
 
 // UpdateTargetSettings updates a single target's healthcheck strategy and backup
@@ -660,6 +680,9 @@ func (s *BackupService) runBackupAsync(runID, targetID, vmid int, name, pveType,
 			slog.Info("backup: vzdump + push completed", "run_id", runID, "vmid", vmid, "remote", remote, "destination", destination, "archive", archive)
 			s.finishRunDest(runID, "completed", size, archive, destination, remote, "ok", msg)
 			s.notifyBackup(name, vmid, "vzdump", "completed", destLabel, msg)
+			// Vérification d'intégrité automatique de la copie off-site fraîchement poussée
+			// (si activée dans les paramètres). Lecture seule, sans incidence sur la prod.
+			s.maybeAutoVerify(targetID, name)
 		} else {
 			msg := fmt.Sprintf("vzdump a échoué: %s", exitStatus)
 			slog.Error("backup: vzdump failed", "run_id", runID, "vmid", vmid, "exit", exitStatus)

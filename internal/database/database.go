@@ -250,6 +250,8 @@ func Migrate(db *sql.DB) {
 		"ALTER TABLE backup_runs ADD COLUMN destination VARCHAR(20) NOT NULL DEFAULT 'local'",
 		"ALTER TABLE backup_runs ADD COLUMN remote VARCHAR(64) NOT NULL DEFAULT ''",
 		"ALTER TABLE backup_runs ADD COLUMN push_status VARCHAR(20) NOT NULL DEFAULT ''",
+		// Vérification automatique d'intégrité après chaque sauvegarde cloud (N1).
+		"ALTER TABLE backup_settings ADD COLUMN auto_verify_enabled BOOLEAN NOT NULL DEFAULT FALSE",
 		// Ansible scheduler hardening (Lot C — non-root). These are ADDITIVE/SAFE and
 		// idempotent: they NEVER drop the column or rewrite existing rows.
 		//   - become: opt-in privilege escalation (sudo) for non-root remote users.
