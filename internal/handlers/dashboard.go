@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"goacore/internal/middleware"
 	"goacore/internal/models"
 )
 
@@ -24,7 +25,7 @@ type onboardingHint struct {
 //
 // An empty slice means everything optional is configured → no banner is rendered.
 func (h *Handler) onboardingHints() []onboardingHint {
-	const link = "/onboarding/connexions"
+	const link = "/parametres/services"
 	var hints []onboardingHint
 	if !h.wazuhCard().Configured {
 		hints = append(hints, onboardingHint{Label: "Wazuh (sécurité)", Link: link})
@@ -48,10 +49,21 @@ func (h *Handler) HandleDashboard(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Error fetching apps", "error", err)
 	}
 
+	// The onboarding banner links to /parametres/services, an Admin-only route. Compute
+	// (and surface) it for admins only: a Viewer cannot configure services, so showing
+	// them the banner would just dead-end on a 403. This also spares the per-service
+	// card probes for non-admins.
+	isAdmin := middleware.GetSessionRole(r, h.SessionStore) == "Admin"
+	var hints []onboardingHint
+	if isAdmin {
+		hints = h.onboardingHints()
+	}
+
 	data := map[string]interface{}{
 		"Apps":            apps,
 		"Username":        username,
-		"OnboardingHints": h.onboardingHints(),
+		"IsAdmin":         isAdmin,
+		"OnboardingHints": hints,
 	}
 	if err := h.Templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		slog.Error("Template execution error", "error", err)

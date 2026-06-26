@@ -76,8 +76,15 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Get("/api/wazuh/agents/refresh", h.HandleWazuhAgentsRefresh)
 		r.Get("/api/wazuh/geo", h.HandleWazuhGeoData)
 
-		// Profile (self-service)
-		r.Get("/profile", h.HandleProfile)
+		// Settings hub — self-service sections (any role). The admin sections
+		// (services, utilisateurs, proxmox, sauvegarde) live in the Admin-only group
+		// below; the cog → /parametres index redirects each role to a reachable section.
+		r.Get("/parametres", h.HandleSettingsIndex)
+		r.Get("/parametres/profil", h.HandleSettingsProfil)
+		r.Get("/parametres/securite", h.HandleSettingsSecurite)
+
+		// Profile (self-service). /profile is a legacy alias for the hub profile section.
+		r.Get("/profile", h.HandleSettingsProfil)
 		r.Post("/api/profile/update", h.HandleUpdateProfile)
 		r.Post("/api/profile/github", h.HandleUpdateGithub)
 		r.Get("/api/me", h.HandleMe)
@@ -146,6 +153,14 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Post("/api/onboarding/discord/import-env", h.HandleOnboardingDiscordImportEnv)
 		r.Post("/api/onboarding/discord/delete", h.HandleOnboardingDiscordDelete)
 
+		// Settings hub — Admin-only sections. Services is the master-detail over the
+		// four registry services (same POST endpoints as above). Proxmox/Sauvegarde are
+		// aliases that re-use the dedicated onboarding handlers (re-chromed into the hub).
+		r.Get("/parametres/services", h.HandleSettingsServices)
+		r.Get("/parametres/utilisateurs", h.HandleSettingsUtilisateurs)
+		r.Get("/parametres/proxmox", h.HandleOnboardingProxmox)
+		r.Get("/parametres/sauvegarde", h.HandleOnboardingChannel)
+
 		// Onboarding — read-only Proxmox helper CHANNEL (goabackup) + cloud self-service.
 		// GoaCore GENERATES the ed25519 key and SERVES an auditable install script the
 		// admin runs in root on THEIR Proxmox; it never opens an SSH session to install.
@@ -208,8 +223,9 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Post("/api/backups/settings", h.HandleBackupSettings)
 		r.Post("/api/backups/target-settings", h.HandleBackupTargetSettings)
 
-		// User management & audit trail
-		r.Get("/users", h.HandleUsers)
+		// User management & audit trail. /users is a legacy alias for the hub
+		// Utilisateurs section.
+		r.Get("/users", h.HandleSettingsUtilisateurs)
 		r.Get("/audit-logs", h.HandleAuditLogs)
 		r.Post("/api/users/add", h.HandleAddUser)
 		r.Post("/api/users/delete", h.HandleDeleteUser)

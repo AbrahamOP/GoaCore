@@ -107,6 +107,11 @@ func (h *Handler) renderChannel(w http.ResponseWriter, r *http.Request, errMsg, 
 		// The host-side revocation command shown at delete time (the DB delete does NOT
 		// touch the host's authorized_keys — that is a separate manual step).
 		"RevokeCommand": channelRevokeCommand(),
+		// Settings-hub chrome: re-chromed into the Paramètres hub. Sauvegarde is
+		// Admin-only ⇒ IsAdmin is true here.
+		"Active":         "sauvegarde",
+		"IsAdmin":        middleware.GetSessionRole(r, h.SessionStore) == "Admin",
+		"HeaderSubtitle": "Canal de sauvegarde et stockage cloud (off-site).",
 	}
 	if err := h.Templates.ExecuteTemplate(w, "onboarding-canal.html", data); err != nil {
 		slog.Error("Template error (onboarding-canal.html)", "error", err)
@@ -437,22 +442,4 @@ func safeBackend(b string) string {
 		return "inconnu"
 	}
 	return b
-}
-
-// channelCardStatus is the short label for the canal link on the unified Connexions
-// page: "ok" (in-app key, last probe ok), "db" (in-app key, not yet verified), "env"
-// (key file via environment), or "unconfigured". It reuses channelCard() so the label
-// stays consistent with the dedicated page.
-func (h *Handler) channelCardStatus() string {
-	card := h.channelCard()
-	switch {
-	case card.HasInAppKey && card.Status == "ok":
-		return "ok"
-	case card.HasInAppKey:
-		return "db"
-	case card.Source == "env":
-		return "env"
-	default:
-		return "unconfigured"
-	}
 }

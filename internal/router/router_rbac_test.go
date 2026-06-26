@@ -238,6 +238,16 @@ var routerOnlyDefended = []route{
 	{http.MethodGet, "/onboarding/proxmox"},
 	{http.MethodGet, "/onboarding/connexions"},
 
+	// Paramètres hub — Admin-only sections whose GET handler has NO inline RequireAdmin,
+	// so the AdminOnly router group is their SOLE barrier: move any of these into the
+	// authenticated group and a Viewer reaches the (services/users/proxmox) configuration
+	// surface, flipping this test red. NB: /parametres/sauvegarde is deliberately NOT here
+	// — its handler (HandleOnboardingChannel) re-checks RequireAdmin inline, so it belongs
+	// to defenseInDepth (same handler as /onboarding/canal).
+	{http.MethodGet, "/parametres/services"},
+	{http.MethodGet, "/parametres/utilisateurs"},
+	{http.MethodGet, "/parametres/proxmox"},
+
 	// SOAR outbound tests (HandleDiscordTest / HandleAITest — no inline check).
 	{http.MethodPost, "/api/soar/discord/test"},
 	{http.MethodPost, "/api/soar/ai/test"},
@@ -278,6 +288,9 @@ var defenseInDepth = []route{
 	{http.MethodPost, "/api/onboarding/ai/delete"},
 	{http.MethodPost, "/onboarding/discord"},
 	{http.MethodGet, "/onboarding/canal"},
+	// /parametres/sauvegarde is the hub alias of /onboarding/canal — SAME handler
+	// (HandleOnboardingChannel), which re-checks RequireAdmin inline ⇒ defence in depth.
+	{http.MethodGet, "/parametres/sauvegarde"},
 	{http.MethodPost, "/api/onboarding/canal/provision"},
 	{http.MethodGet, "/api/onboarding/canal/installer.sh"},
 	{http.MethodGet, "/api/onboarding/canal/helper.sh"},
@@ -559,14 +572,39 @@ func TestRBAC_ViewerCanReachReadOnlySurface(t *testing.T) {
 	setRole("ro_viewer", "Viewer")
 	cookie := sessionCookie(t, store, "ro_viewer", csrfTok)
 
-	// A representative read-only route that lives in the authenticated (non-admin)
-	// group: /api/me. A Viewer must clear AuthMiddleware here (no AdminOnly).
-	rr := doRequest(t, router, http.MethodGet, "/api/me", cookie)
-	if rr.Code == http.StatusForbidden {
-		t.Fatalf("Viewer on GET /api/me: got 403 — read-only surface wrongly gated as admin-only")
+	// Representative routes in the authenticated (non-admin) group a Viewer MUST be able
+	// to reach: /api/me, plus the self-service Paramètres sections (profil, securite) and
+	// the hub index. None carry AdminOnly; putting one behind it by mistake would lock a
+	// Viewer out of their own profile/2FA — this control catches that regression.
+	selfService := []string{"/api/me", "/parametres", "/parametres/profil", "/parametres/securite"}
+	for _, path := range selfService {
+		rr := doRequest(t, router, http.MethodGet, path, cookie)
+		if rr.Code == http.StatusForbidden {
+			t.Fatalf("Viewer on GET %s: got 403 — self-service surface wrongly gated as admin-only", path)
+		}
+		if rr.Code == http.StatusSeeOther && rr.Header().Get("Location") == "/login" {
+			t.Fatalf("Viewer on GET %s: bounced to /login — authenticated Viewer treated as anon", path)
+		}
 	}
-	if rr.Code == http.StatusSeeOther && rr.Header().Get("Location") == "/login" {
-		t.Fatalf("Viewer on GET /api/me: bounced to /login — authenticated Viewer treated as anon")
+
+	// Self-service POST mutations a Viewer MUST also reach (editing their OWN profile):
+	// these are wired in the authenticated group, NOT behind AdminOnly. Mistakenly gating
+	// them admin-only would lock a Viewer out of changing their own password / GitHub URL.
+	// We assert only "neither 403 nor /login redirect": the handler may then 4xx/3xx on the
+	// empty body or the nil-services fake DB, which still proves RBAC let the Viewer in.
+	// (doRequest sets the matching X-CSRF-Token, so a CSRF rejection cannot mask the result.)
+	selfServicePosts := []route{
+		{http.MethodPost, "/api/profile/update"},
+		{http.MethodPost, "/api/profile/github"},
+	}
+	for _, rt := range selfServicePosts {
+		rr := doRequest(t, router, rt.method, rt.path, cookie)
+		if rr.Code == http.StatusForbidden {
+			t.Fatalf("Viewer on %s %s: got 403 — self-service mutation wrongly gated as admin-only", rt.method, rt.path)
+		}
+		if rr.Code == http.StatusSeeOther && rr.Header().Get("Location") == "/login" {
+			t.Fatalf("Viewer on %s %s: bounced to /login — authenticated Viewer treated as anon", rt.method, rt.path)
+		}
 	}
 }
 

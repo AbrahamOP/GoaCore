@@ -127,6 +127,11 @@ func (h *Handler) renderOnboardingProxmox(w http.ResponseWriter, r *http.Request
 		"Error":          errMsg,
 		"Success":        okMsg,
 		"User":           middleware.GetSessionUser(r, h.SessionStore),
+		// Settings-hub chrome: this page is re-chromed into the Paramètres hub, so it
+		// feeds the shared sidebar/sub-nav. Proxmox is Admin-only ⇒ IsAdmin is true here.
+		"Active":         "proxmox",
+		"IsAdmin":        middleware.GetSessionRole(r, h.SessionStore) == "Admin",
+		"HeaderSubtitle": "Reliez GoaCore à votre hyperviseur Proxmox VE.",
 	}
 	if err := h.Templates.ExecuteTemplate(w, "onboarding-proxmox.html", data); err != nil {
 		slog.Error("Template error (onboarding-proxmox.html)", "error", err)

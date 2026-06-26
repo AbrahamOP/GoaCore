@@ -1,44 +1,17 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
 
-	"goacore/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// HandleProfile renders the user profile page.
-func (h *Handler) HandleProfile(w http.ResponseWriter, r *http.Request) {
-	session, err := h.SessionStore.Get(r, "goacloud-session")
-	if err != nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-	username, ok := session.Values["username"].(string)
-	if !ok || username == "" {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-
-	var user models.User
-	var mfaSecret sql.NullString
-	err = h.DB.QueryRow("SELECT id, username, email, role, created_at, mfa_enabled, mfa_secret, github_url FROM users WHERE username = ?", username).
-		Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.CreatedAt, &user.MFAEnabled, &mfaSecret, &user.GithubURL)
-	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
-	user.MFASecret = mfaSecret.String
-
-	if err := h.Templates.ExecuteTemplate(w, "profile.html", user); err != nil {
-		slog.Error("Template error (profile.html)", "error", err)
-		http.Error(w, "Template error", http.StatusInternalServerError)
-	}
-}
+// The profile page itself moved into the Paramètres hub (see settings.go:
+// HandleSettingsProfil, served at /profile and /parametres/profil). The mutation
+// endpoints below stay here and redirect back to /profile (the hub profil section).
 
 // HandleUpdateProfile handles password change requests.
 func (h *Handler) HandleUpdateProfile(w http.ResponseWriter, r *http.Request) {

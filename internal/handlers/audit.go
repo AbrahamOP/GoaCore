@@ -61,6 +61,11 @@ func (h *Handler) HandleAuditLogs(w http.ResponseWriter, r *http.Request) {
 		"Username": username,
 		"Role":     role,
 		"Logs":     logs,
+		// Settings-hub chrome: re-chromed into the Paramètres hub (Admin-only section),
+		// so it feeds the shared sidebar/sub-nav like the proxmox/canal pages.
+		"Active":         "audit",
+		"IsAdmin":        role == "Admin",
+		"HeaderSubtitle": "Journal d'activité et événements de sécurité.",
 	}
 	if err := h.Templates.ExecuteTemplate(w, "audit_logs.html", data); err != nil {
 		slog.Error("Template execution error", "error", err)

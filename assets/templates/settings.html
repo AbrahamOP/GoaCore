@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    {{template "head-common"}}
+    <title>GoaCore — Paramètres</title>
+    <style>
+        body { font-family: 'Outfit', sans-serif; }
+        /* Hide native password-reveal / autofill widgets so they don't clash with our eye toggle. */
+        input::-ms-reveal,
+        input::-ms-clear,
+        input::-webkit-contacts-auto-fill-button,
+        input::-webkit-credentials-auto-fill-button,
+        input::-webkit-caps-lock-indicator,
+        input::-webkit-credit-card-auto-fill-button,
+        input::-webkit-strong-password-auto-fill-button {
+            display: none !important; visibility: hidden !important; pointer-events: none !important;
+            position: absolute !important; right: 0 !important; width: 0 !important; height: 0 !important;
+        }
+        .input-with-eye { padding-right: 3rem !important; }
+    </style>
+</head>
+
+<body class="min-h-screen flex bg-surface text-on-surface">
+
+    {{template "mobile-overlay"}}
+    {{template "sidebar"}}
+
+    <main class="flex-1 md:ml-64 overflow-y-auto bg-surface relative">
+        {{template "bubbles"}}
+
+        <div class="px-8 py-10 relative z-10">
+            <!-- Header -->
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold text-on-surface mb-2"><span class="gradient-text">Paramètres</span></h2>
+                    <p class="text-on-surface-variant text-sm">{{.HeaderSubtitle}}</p>
+                </div>
+                <div class="flex items-center gap-3 flex-wrap">
+                    {{template "top-actions"}}
+                </div>
+            </div>
+
+            <!-- Global banners (set by a section POST that re-renders the hub) -->
+            {{if .Error}}
+            <div class="mb-6 p-4 rounded-lg bg-error-container text-error border border-error-container text-sm flex items-center gap-2">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                {{.Error}}
+            </div>
+            {{end}}
+            {{if .Success}}
+            <div class="mb-6 p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-green-300 text-sm flex items-center gap-2">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {{.Success}}
+            </div>
+            {{end}}
+
+            <div class="flex flex-col gap-6">
+                {{template "settings-nav" .}}
+
+                <section class="flex-1 min-w-0 w-full">
+                    {{if eq .Section "services"}}{{template "settings-services" .}}
+                    {{else if eq .Section "profil"}}{{template "settings-profil" .}}
+                    {{else if eq .Section "securite"}}{{template "settings-securite" .}}
+                    {{else if eq .Section "utilisateurs"}}{{template "settings-utilisateurs" .}}
+                    {{end}}
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/theme.js"></script>
+    <script src="/static/csrf.js"></script>
+    <script src="/static/search.js"></script>
+    {{template "sidebar-js"}}
+
+    {{if eq .Section "services"}}{{template "settings-services-js" .}}{{end}}
+    {{if eq .Section "profil"}}{{template "settings-profil-js" .}}{{end}}
+    {{if eq .Section "securite"}}{{template "settings-securite-js" .}}{{end}}
+    {{if eq .Section "utilisateurs"}}{{template "settings-utilisateurs-js" .}}{{end}}
+</body>
+
+</html>
