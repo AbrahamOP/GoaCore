@@ -21,26 +21,18 @@
         <div class="px-8 py-10 relative z-10">
             <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
                 <div>
-                    <h2 class="text-3xl font-bold text-on-surface mb-2">Administration <span
-                            class="gradient-text">Système</span></h2>
-                    <p class="text-on-surface-variant text-sm">Gerez les utilisateurs et consultez les journaux de securite.</p>
+                    <h2 class="text-3xl font-bold text-on-surface mb-2"><span class="gradient-text">Paramètres</span></h2>
+                    <p class="text-on-surface-variant text-sm">{{.HeaderSubtitle}}</p>
                 </div>
                 <div class="flex items-center gap-3 flex-wrap">
                     {{template "top-actions"}}
                 </div>
             </div>
 
-            <!-- Tabs -->
-            <div class="flex space-x-6 mb-8 border-b border-outline-variant">
-                <a href="/users"
-                    class="pb-3 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors border-b-2 border-transparent hover:border-outline">
-                    Utilisateurs
-                </a>
-                <a href="/audit-logs" class="pb-3 text-sm font-medium text-on-surface border-b-2 border-primary">
-                    Logs d'Audit
-                </a>
-            </div>
+            <div class="flex flex-col gap-6">
+                {{template "settings-nav" .}}
 
+                <section class="flex-1 min-w-0 w-full">
             <!-- Audit Logs Table -->
             <div class="rounded-xl overflow-hidden bg-surface-container border border-outline-variant relative z-10 shadow-xl">
                 <div class="px-6 py-4 border-b border-outline-variant flex justify-between items-center"
@@ -96,6 +88,8 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+                </section>
             </div>
         </div>
     </main>

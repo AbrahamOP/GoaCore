@@ -50,6 +50,14 @@
             </svg>
             Utilisateurs
         </a>
+        <a href="/audit-logs"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {{if eq .Active "audit"}}bg-surface-container-high text-primary{{else}}text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high{{end}}">
+            <svg class="w-5 h-5 text-orange-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+            </svg>
+            Journaux d'audit
+        </a>
         <span class="h-6 w-px bg-outline-variant flex-shrink-0" aria-hidden="true"></span>
         {{end}}
         <a href="/parametres/profil"

@@ -186,6 +186,18 @@ func TestRechromedOnboardingPagesRender(t *testing.T) {
 			},
 			wantStr: "sauvegarde",
 		},
+		{
+			name:     "audit",
+			template: "audit_logs.html",
+			data: map[string]any{
+				"Username": "alice", "Role": "Admin", "Active": "audit", "IsAdmin": true,
+				"HeaderSubtitle": "Journal d'activité et événements de sécurité.",
+				"Logs": []map[string]any{
+					{"ID": 1, "Username": "alice", "Action": "Login", "Details": "ok", "IPAddress": "192.0.2.5", "CreatedAt": "2026-06-26"},
+				},
+			},
+			wantStr: "Journal",
+		},
 	}
 
 	for _, tc := range cases {
