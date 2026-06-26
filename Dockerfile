@@ -1,5 +1,7 @@
-# Build Stage
-FROM golang:alpine AS builder
+# Build Stage — exécuté sur l'arch NATIVE du runner, cross-compile le binaire Go vers
+# l'arch cible (TARGETOS/TARGETARCH injectés par buildx). Go cross-compile sans
+# émulation : les builds multi-arch (amd64/arm64) restent rapides.
+FROM --platform=$BUILDPLATFORM golang:alpine AS builder
 
 WORKDIR /app
 
@@ -25,8 +27,10 @@ COPY deploy/ ./deploy/
 # Téléchargement des dépendances
 RUN go mod download
 
-# Build de l'application statique depuis le nouveau point d'entrée
-RUN CGO_ENABLED=0 GOOS=linux go build -o goacloud ./cmd/server
+# Build de l'application statique pour l'arch cible (cross-compilation).
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -o goacloud ./cmd/server
 
 # Final Stage
 FROM alpine:3.21
