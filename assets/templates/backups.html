@@ -45,6 +45,22 @@
                 </div>
             </div>
 
+            <!-- Bannière onboarding : canal Proxmox non connecté → guider vers la config -->
+            {{if not .ChannelConfigured}}
+            <div class="mb-8 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-start gap-3">
+                    <svg class="w-6 h-6 text-primary mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    <div>
+                        <p class="font-semibold text-on-surface">Avant de commencer : connectez votre serveur Proxmox</p>
+                        <p class="text-sm text-on-surface-variant mt-0.5">GoaCore doit être relié à votre hyperviseur pour sauvegarder vos données et vérifier qu'elles sont restaurables. La configuration prend quelques minutes.</p>
+                    </div>
+                </div>
+                <a href="/parametres/sauvegarde" class="flex-shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold bg-primary text-on-primary hover:opacity-90 transition">
+                    Configurer le canal de sauvegarde
+                </a>
+            </div>
+            {{end}}
+
             <!-- KPI Strip -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
@@ -52,16 +68,16 @@
                     <p class="text-2xl font-bold text-teal-400 mt-1">{{.Summary.Total}}</p>
                 </div>
                 <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
-                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Couverture RPO</p>
+                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold" title="Part des cibles dont la dernière sauvegarde est assez récente">Cibles à jour</p>
                     <p class="text-2xl font-bold mt-1 {{if ge .Summary.CoveragePct 80}}text-green-400{{else if ge .Summary.CoveragePct 50}}text-orange-400{{else}}text-red-400{{end}}">{{.Summary.CoveragePct}}%</p>
                 </div>
                 <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
-                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">À risque (RPO)</p>
+                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold" title="Cibles dont la dernière sauvegarde est trop ancienne">Sauvegardes en retard</p>
                     <p class="text-2xl font-bold mt-1 {{if gt .Summary.Breach 0}}text-red-400{{else if gt .Summary.Warn 0}}text-orange-400{{else}}text-green-400{{end}}">{{.Summary.AtRisk}}</p>
                 </div>
                 <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
-                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Sandbox tests</p>
-                    <p class="text-2xl font-bold text-primary mt-1">VLAN 99</p>
+                    <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold" title="Les restaurations de test tournent dans un réseau isolé (VLAN 99), sans risque pour la production">Tests de restauration</p>
+                    <p class="text-2xl font-bold text-primary mt-1">Isolés</p>
                     <p class="text-xs mt-1 flex items-center gap-1.5 {{if .RotationEnabled}}text-green-400{{else}}text-on-surface-variant{{end}}">
                         <span class="inline-block w-1.5 h-1.5 rounded-full {{if .RotationEnabled}}bg-green-400{{else}}bg-outline-variant{{end}}"></span>
                         {{if .RotationEnabled}}Rotation auto · {{printf "%02d" .RotationHour}}:00{{else}}Rotation auto désactivée{{end}}
@@ -89,7 +105,7 @@
                                 <th class="px-6 py-3">Dernière sauvegarde</th>
                                 <th class="px-6 py-3">Taille</th>
                                 <th class="px-6 py-3">Âge</th>
-                                <th class="px-6 py-3">RPO</th>
+                                <th class="px-6 py-3" title="Indique si la dernière sauvegarde est assez récente par rapport au délai maximum toléré">Fraîcheur</th>
                                 <th class="px-6 py-3">Dernier test</th>
                                 <th class="px-6 py-3 text-right">Actions</th>
                             </tr>
@@ -109,7 +125,7 @@
                                     {{else if eq .RPOStatus "warn"}}
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20">En retard</span>
                                     {{else if eq .RPOStatus "breach"}}
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">RPO dépassé</span>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">Trop ancienne</span>
                                     {{else}}
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant">Aucune</span>
                                     {{end}}
@@ -123,18 +139,18 @@
                                         <select class="backup-destination bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                             title="Destination de la sauvegarde">
                                             <option value="local" selected>Local</option>
-                                            <option value="both">Local + remote</option>
-                                            <option value="remote">Remote seul</option>
+                                            <option value="both">Local + cloud</option>
+                                            <option value="remote">Cloud seul</option>
                                         </select>
                                         <select class="backup-remote hidden bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            title="Remote rclone de destination">
+                                            title="Destination cloud">
                                             <!-- peuplé dynamiquement via /api/backups/remotes -->
                                         </select>
                                         <select class="test-level bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                                             data-target-id="{{.Target.ID}}" title="Niveau de test">
-                                            <option value="N3" selected>N3 · restaure + santé</option>
-                                            <option value="N2">N2 · restaure + boot</option>
-                                            <option value="N1">N1 · intégrité</option>
+                                            <option value="N3" selected title="Restaure réellement la sauvegarde dans une VM jetable isolée, la démarre et vérifie que l'application répond">Vérifier que l'appli répond</option>
+                                            <option value="N2" title="Restaure réellement la sauvegarde dans une VM jetable isolée et vérifie qu'elle redémarre">Vérifier que la VM redémarre</option>
+                                            <option value="N1" title="Contrôle l'intégrité du fichier de sauvegarde (lecture seule, sans restauration)">Vérifier l'intégrité du fichier</option>
                                         </select>
                                         <button type="button"
                                             class="restore-test-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-secondary-container text-on-secondary-container hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed border border-outline-variant"
@@ -146,9 +162,9 @@
                                         <button type="button"
                                             class="backup-now-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-on-primary hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
                                             data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}"
-                                            title="Lancer un vzdump maintenant">
+                                            title="Lancer une sauvegarde maintenant">
                                             <svg class="w-4 h-4 btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
-                                            <span class="btn-label">Backup now</span>
+                                            <span class="btn-label">Sauvegarder</span>
                                         </button>
                                     </div>
                                 </td>
@@ -158,8 +174,13 @@
                                 <td colspan="9" class="px-6 py-12 text-center">
                                     <div class="flex flex-col items-center gap-3 text-on-surface-variant">
                                         <svg class="w-12 h-12 text-outline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
-                                        <p class="text-sm">Aucune sauvegarde détectée sur le stockage Proxmox.</p>
-                                        <p class="text-xs">Vérifiez la connexion Proxmox ou lancez un premier vzdump.</p>
+                                        {{if not $.ChannelConfigured}}
+                                        <p class="text-sm text-on-surface">Connectez d'abord GoaCore à votre serveur Proxmox.</p>
+                                        <a href="/parametres/sauvegarde" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold bg-primary text-on-primary hover:opacity-90 transition">Configurer le canal de sauvegarde</a>
+                                        {{else}}
+                                        <p class="text-sm">Aucune sauvegarde n'existe encore.</p>
+                                        <p class="text-xs">Les serveurs à sauvegarder apparaîtront ici dès la première sauvegarde.</p>
+                                        {{end}}
                                     </div>
                                 </td>
                             </tr>
@@ -190,7 +211,7 @@
                 <!-- Destinations (remotes rclone) -->
                 <section>
                     <h4 class="text-sm font-semibold text-on-surface mb-1">Destinations</h4>
-                    <p class="text-xs text-on-surface-variant mb-4">Vos remotes rclone détectés sur l'hôte. Choisissez-en un comme destination off-site lors d'une sauvegarde (Local + remote, ou remote seul).</p>
+                    <p class="text-xs text-on-surface-variant mb-4">Vos espaces de stockage cloud connectés (via le serveur). Choisissez-en un comme destination distante lors d'une sauvegarde (« Local + cloud » ou « Cloud seul »).</p>
                     <div class="border border-outline-variant rounded-xl overflow-hidden">
                         <table class="w-full text-left text-sm text-on-surface-variant">
                             <thead class="bg-surface-container-high text-xs uppercase font-medium text-on-surface-variant">
@@ -408,7 +429,7 @@
                 if (!tbody) return;
                 const list = remotesCache || [];
                 if (!list.length) {
-                    tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-sm text-on-surface-variant">Aucun remote rclone détecté (canal Proxmox indisponible ?).</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-sm text-on-surface-variant">Aucune destination cloud détectée (canal Proxmox indisponible ?).</td></tr>';
                     return;
                 }
                 tbody.innerHTML = list.map(r =>
@@ -445,7 +466,7 @@
                     const destination = destSel ? destSel.value : 'local';
                     const remote = remoteSel ? remoteSel.value : '';
                     if (destination !== 'local' && !remote) {
-                        toast('Sélectionnez un remote pour cette destination', 'error');
+                        toast('Choisissez une destination cloud', 'error');
                         return;
                     }
                     const icon = btn.querySelector('.btn-icon');
@@ -475,7 +496,7 @@
                             btn.disabled = false;
                             const freshIcon = btn.querySelector('svg');
                             if (freshIcon && originalIcon) freshIcon.outerHTML = originalIcon;
-                            if (label) label.textContent = 'Backup now';
+                            if (label) label.textContent = 'Sauvegarder';
                         }, 1500);
                     }
                 });
@@ -489,6 +510,8 @@
                 failed: ['❌ Échec', 'text-red-400'],
                 pending: ['En attente', 'text-on-surface-variant']
             };
+            // Libellés clairs pour les niveaux de test (codes internes N1/N2/N3).
+            const LEVEL_SHORT = { N1: 'intégrité', N2: 'redémarrage', N3: 'appli' };
 
             function fmtDate(s) {
                 if (!s) return '';
@@ -512,8 +535,8 @@
                         const t = latest[tid];
                         if (!t) { cell.textContent = '—'; cell.className = 'text-xs text-on-surface-variant'; return; }
                         const meta = VERDICT_LABEL[t.Verdict] || [t.Verdict, 'text-on-surface-variant'];
-                        let txt = (t.Level || '') + ' · ' + meta[0];
-                        if (t.Verdict === 'passed' && t.RTOSeconds > 0) txt += ' · RTO ' + t.RTOSeconds + 's';
+                        let txt = meta[0] + ' · ' + (LEVEL_SHORT[t.Level] || t.Level || '');
+                        if (t.Verdict === 'passed' && t.RTOSeconds > 0) txt += ' · en ' + t.RTOSeconds + 's';
                         const when = fmtDate(t.CompletedAt || t.StartedAt || t.CreatedAt);
                         if (when && t.Verdict !== 'running') txt += ' · ' + when;
                         cell.textContent = txt;
@@ -555,7 +578,7 @@
                             const txt = await res.text();
                             throw new Error(txt || ('HTTP ' + res.status));
                         }
-                        toast('Test ' + level + ' lancé pour ' + name, 'success');
+                        toast('Test de restauration lancé pour ' + name, 'success');
                         scheduleTestRefresh(2000);
                     } catch (e) {
                         toast('Échec test : ' + e.message, 'error');

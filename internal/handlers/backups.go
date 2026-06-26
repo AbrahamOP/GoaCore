@@ -29,16 +29,23 @@ func (h *Handler) HandleBackupPage(w http.ResponseWriter, r *http.Request) {
 		slog.Error("backup: get settings", "error", err)
 	}
 
+	// Whether the Proxmox channel is connected, so the page can guide a fresh admin
+	// to /parametres/sauvegarde instead of showing an empty, jargon-y table. Reuses the
+	// onboarding card logic (DB read only, no network call).
+	channelConfigured := h.channelCard().Configured
+
 	data := struct {
-		Targets         []models.BackupTargetView
-		Summary         models.BackupSummary
-		RotationEnabled bool
-		RotationHour    int
+		Targets           []models.BackupTargetView
+		Summary           models.BackupSummary
+		RotationEnabled   bool
+		RotationHour      int
+		ChannelConfigured bool
 	}{
-		Targets:         views,
-		Summary:         summary,
-		RotationEnabled: settings.RotationEnabled,
-		RotationHour:    settings.RotationHour,
+		Targets:           views,
+		Summary:           summary,
+		RotationEnabled:   settings.RotationEnabled,
+		RotationHour:      settings.RotationHour,
+		ChannelConfigured: channelConfigured,
 	}
 
 	if err := h.Templates.ExecuteTemplate(w, "backups.html", data); err != nil {
