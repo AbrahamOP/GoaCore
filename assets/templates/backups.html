@@ -100,11 +100,7 @@
                         <thead class="bg-surface-container-high text-xs uppercase font-medium text-on-surface-variant">
                             <tr>
                                 <th class="px-6 py-3">Cible</th>
-                                <th class="px-6 py-3">Type</th>
-                                <th class="px-6 py-3">Réf.</th>
                                 <th class="px-6 py-3">Dernière sauvegarde</th>
-                                <th class="px-6 py-3">Taille</th>
-                                <th class="px-6 py-3">Âge</th>
                                 <th class="px-6 py-3" title="Indique si la dernière sauvegarde est assez récente par rapport au délai maximum toléré">Fraîcheur</th>
                                 <th class="px-6 py-3">Dernier test</th>
                                 <th class="px-6 py-3 text-right">Actions</th>
@@ -113,12 +109,17 @@
                         <tbody class="divide-y divide-outline-variant">
                             {{range .Targets}}
                             <tr class="hover:bg-outline-variant/30 transition" data-target-id="{{.Target.ID}}">
-                                <td class="px-6 py-4 font-medium text-on-surface">{{.Target.Name}}</td>
-                                <td class="px-6 py-4"><span class="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-xs border border-blue-500/20">{{.Target.TargetType}}</span></td>
-                                <td class="px-6 py-4 font-mono text-xs">{{.Target.SourceRef}}</td>
-                                <td class="px-6 py-4">{{.LastBackupAtStr}}</td>
-                                <td class="px-6 py-4">{{.LastBackupSizeStr}}</td>
-                                <td class="px-6 py-4">{{.LastBackupAgeStr}}</td>
+                                <!-- Cible : nom + (type · réf) -->
+                                <td class="px-6 py-4">
+                                    <div class="font-medium text-on-surface">{{.Target.Name}}</div>
+                                    <div class="text-xs text-on-surface-variant mt-1"><span class="uppercase">{{.Target.TargetType}}</span> · <span class="font-mono">{{.Target.SourceRef}}</span></div>
+                                </td>
+                                <!-- Dernière sauvegarde : date + (taille · âge) -->
+                                <td class="px-6 py-4">
+                                    <div class="text-on-surface">{{.LastBackupAtStr}}</div>
+                                    <div class="text-xs text-on-surface-variant mt-1">{{.LastBackupSizeStr}} · {{.LastBackupAgeStr}}</div>
+                                </td>
+                                <!-- Fraîcheur -->
                                 <td class="px-6 py-4">
                                     {{if eq .RPOStatus "ok"}}
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-500/10 text-green-400 border border-green-500/20">À jour</span>
@@ -130,38 +131,16 @@
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant">Aucune</span>
                                     {{end}}
                                 </td>
+                                <!-- Dernier test : cliquable → rapport détaillé -->
                                 <td class="px-6 py-4 whitespace-nowrap" data-test-cell>
-                                    <span class="text-xs text-on-surface-variant" data-test-status>—</span>
+                                    <button type="button" class="test-report-btn text-xs text-on-surface-variant hover:underline decoration-dotted underline-offset-2"
+                                        data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}" data-test-status
+                                        title="Voir le rapport du dernier test">—</button>
                                 </td>
+                                <!-- Actions : Sauvegarder (visible) + menu ⋮ (intégrité / test / destination) -->
                                 <td class="px-6 py-4 text-right whitespace-nowrap">
                                     <span class="run-status text-xs text-on-surface-variant mr-2" data-run-status></span>
-                                    <div class="inline-flex items-center gap-2">
-                                        <select class="backup-destination bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            title="Destination de la sauvegarde">
-                                            <option value="local" selected>Local</option>
-                                            <option value="both">Local + cloud</option>
-                                            <option value="remote">Cloud seul</option>
-                                        </select>
-                                        <select class="backup-remote hidden bg-surface-container-high text-on-surface text-xs rounded-full border border-outline-variant px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            title="Destination cloud">
-                                            <!-- peuplé dynamiquement via /api/backups/remotes -->
-                                        </select>
-                                        <!-- Action SÛRE : vérification d'intégrité (lecture seule, sans restauration) -->
-                                        <button type="button"
-                                            class="check-integrity-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-surface-container-high text-on-surface border border-outline-variant hover:bg-surface-container-highest transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                            data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}"
-                                            title="Vérifie l'intégrité du fichier de sauvegarde — lecture seule, sans risque">
-                                            <svg class="w-4 h-4 ci-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                            <span class="ci-label">Intégrité</span>
-                                        </button>
-                                        <!-- Action SENSIBLE : restauration réelle dans une VM jetable → confirmation -->
-                                        <button type="button"
-                                            class="restore-test-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-orange-500/15 text-orange-300 border border-orange-500/30 hover:bg-orange-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                            data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}"
-                                            title="Restaure réellement la sauvegarde dans une VM jetable isolée (VLAN 99) pour prouver qu'elle fonctionne">
-                                            <svg class="w-4 h-4 test-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3h6M10 3v5l-4.553 7.969A1.5 1.5 0 006.75 18h10.5a1.5 1.5 0 001.303-2.031L14 8V3"/></svg>
-                                            <span class="test-label">Test de restauration</span>
-                                        </button>
+                                    <div class="relative inline-flex items-center gap-2">
                                         <button type="button"
                                             class="backup-now-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-on-primary hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
                                             data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}"
@@ -169,12 +148,39 @@
                                             <svg class="w-4 h-4 btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
                                             <span class="btn-label">Sauvegarder</span>
                                         </button>
+                                        <button type="button" class="row-menu-btn p-1.5 rounded-full text-on-surface-variant hover:bg-surface-container-high transition" title="Plus d'actions" aria-label="Plus d'actions">
+                                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+                                        </button>
+                                        <!-- Menu déroulant des actions -->
+                                        <div class="row-menu hidden absolute right-0 top-full mt-2 w-64 origin-top-right bg-surface-container-high border border-outline-variant rounded-xl shadow-xl z-20 p-2 text-left">
+                                            <p class="px-2 pt-1 pb-1 text-[11px] uppercase tracking-widest font-semibold text-on-surface-variant">Destination de la sauvegarde</p>
+                                            <select class="backup-destination w-full bg-transparent text-on-surface text-sm rounded-lg border border-outline-variant px-3 py-2 mb-1 focus:outline-none focus:ring-1 focus:ring-primary">
+                                                <option value="local" selected>Local</option>
+                                                <option value="both">Local + cloud</option>
+                                                <option value="remote">Cloud seul</option>
+                                            </select>
+                                            <select class="backup-remote hidden w-full bg-transparent text-on-surface text-sm rounded-lg border border-outline-variant px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"></select>
+                                            <div class="my-2 border-t border-outline-variant"></div>
+                                            <p class="px-2 pb-1 text-[11px] uppercase tracking-widest font-semibold text-on-surface-variant">Vérification</p>
+                                            <button type="button" class="check-integrity-btn w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-on-surface hover:bg-surface-container-highest transition text-left"
+                                                data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}"
+                                                title="Vérifie l'intégrité du fichier de sauvegarde — lecture seule, sans risque">
+                                                <svg class="w-4 h-4 text-green-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                                Vérifier l'intégrité <span class="text-on-surface-variant text-xs">(sans risque)</span>
+                                            </button>
+                                            <button type="button" class="restore-test-btn w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-on-surface hover:bg-orange-500/10 transition text-left"
+                                                data-target-id="{{.Target.ID}}" data-target-name="{{.Target.Name}}"
+                                                title="Restaure réellement la sauvegarde dans une VM jetable isolée (VLAN 99) pour prouver qu'elle fonctionne">
+                                                <svg class="w-4 h-4 text-orange-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3h6M10 3v5l-4.553 7.969A1.5 1.5 0 006.75 18h10.5a1.5 1.5 0 001.303-2.031L14 8V3"/></svg>
+                                                Test de restauration
+                                            </button>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
                             {{else}}
                             <tr>
-                                <td colspan="9" class="px-6 py-12 text-center">
+                                <td colspan="5" class="px-6 py-12 text-center">
                                     <div class="flex flex-col items-center gap-3 text-on-surface-variant">
                                         <svg class="w-12 h-12 text-outline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
                                         {{if not $.ChannelConfigured}}
@@ -346,6 +352,31 @@
                 <button type="button" id="rc-confirm-btn" class="inline-flex items-center gap-2 px-5 py-2 rounded-full text-sm font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30 hover:bg-orange-500/20 transition">
                     Lancer le test
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test report modal : verdict + détails (logs) du dernier test d'une cible -->
+    <div id="test-report-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-surface-container border border-outline-variant rounded-xl w-full max-w-2xl shadow-2xl">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant">
+                <h3 class="text-lg font-bold text-on-surface flex items-center gap-2">
+                    <svg class="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+                    Rapport de test — <span id="tr-target-name" class="text-primary"></span>
+                </h3>
+                <button type="button" onclick="closeTestReport()" class="text-on-surface-variant hover:text-on-surface transition">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="px-6 py-5 space-y-4">
+                <div id="tr-summary" class="flex flex-wrap gap-x-6 gap-y-2 text-sm"></div>
+                <div>
+                    <p class="text-[11px] uppercase tracking-widest font-semibold text-on-surface-variant mb-1">Détails</p>
+                    <pre id="tr-logs" class="text-xs bg-surface-container-high border border-outline-variant rounded-lg p-3 max-h-80 overflow-auto whitespace-pre-wrap text-on-surface-variant" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"></pre>
+                </div>
+            </div>
+            <div class="flex justify-end px-6 py-4 border-t border-outline-variant">
+                <button type="button" onclick="closeTestReport()" class="px-4 py-2 rounded-full text-sm text-on-surface-variant hover:text-on-surface transition">Fermer</button>
             </div>
         </div>
     </div>
@@ -571,26 +602,30 @@
             }
 
             // Refresh the "Dernier test" cell for every target row.
+            // Cache du dernier test par cible (alimente le rapport « Dernier test »).
+            let latestTestByTarget = {};
+
             async function refreshTests() {
                 try {
                     const res = await fetch('/api/backups/tests', { headers: { 'Accept': 'application/json' } });
                     if (!res.ok) return;
                     const tests = await res.json() || [];
-                    const latest = {};
-                    tests.forEach(t => { if (latest[t.TargetID] === undefined) latest[t.TargetID] = t; });
+                    latestTestByTarget = {};
+                    tests.forEach(t => { if (latestTestByTarget[t.TargetID] === undefined) latestTestByTarget[t.TargetID] = t; });
                     document.querySelectorAll('tr[data-target-id]').forEach(row => {
                         const tid = parseInt(row.getAttribute('data-target-id'), 10);
                         const cell = row.querySelector('[data-test-status]');
                         if (!cell) return;
-                        const t = latest[tid];
-                        if (!t) { cell.textContent = '—'; cell.className = 'text-xs text-on-surface-variant'; return; }
+                        const base = 'test-report-btn text-xs hover:underline decoration-dotted underline-offset-2 ';
+                        const t = latestTestByTarget[tid];
+                        if (!t) { cell.textContent = 'Jamais testé'; cell.className = base + 'text-on-surface-variant'; return; }
                         const meta = VERDICT_LABEL[t.Verdict] || [t.Verdict, 'text-on-surface-variant'];
                         let txt = meta[0] + ' · ' + (LEVEL_SHORT[t.Level] || t.Level || '');
                         if (t.Verdict === 'passed' && t.RTOSeconds > 0) txt += ' · en ' + t.RTOSeconds + 's';
                         const when = fmtDate(t.CompletedAt || t.StartedAt || t.CreatedAt);
                         if (when && t.Verdict !== 'running') txt += ' · ' + when;
                         cell.textContent = txt;
-                        cell.className = 'text-xs ' + meta[1];
+                        cell.className = base + meta[1];
                     });
                     if (tests.some(t => t.Verdict === 'running')) {
                         scheduleTestRefresh(5000);
@@ -604,58 +639,63 @@
                 testTimer = setTimeout(refreshTests, ms);
             }
 
-            // Lance un test (N1 intégrité OU N2/N3 restauration) et anime le bouton source.
-            async function launchTest(btn, targetId, name, level) {
-                if (!btn || !targetId) return;
-                const icon = btn.querySelector('svg');
-                const label = btn.querySelector('span');
-                const originalIcon = icon ? icon.outerHTML : '';
-                const originalLabel = label ? label.textContent : '';
-                btn.disabled = true;
-                if (icon) icon.outerHTML = SPIN_SVG;
-                if (label) label.textContent = 'Lancement…';
+            // --- Menu d'actions par ligne (⋮) ---
+            function closeAllRowMenus() {
+                document.querySelectorAll('.row-menu').forEach(m => m.classList.add('hidden'));
+            }
+            document.querySelectorAll('.row-menu-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const menu = btn.parentElement.querySelector('.row-menu');
+                    const wasHidden = menu.classList.contains('hidden');
+                    closeAllRowMenus();
+                    if (wasHidden) menu.classList.remove('hidden');
+                });
+            });
+            // Un clic DANS un menu ne le ferme pas (selects, etc.) ; un clic ailleurs ferme.
+            document.querySelectorAll('.row-menu').forEach(m => m.addEventListener('click', e => e.stopPropagation()));
+            document.addEventListener('click', closeAllRowMenus);
+
+            // Lance un test (N1 intégrité OU N2/N3 restauration). Le feedback apparaît
+            // dans la colonne « Dernier test » (les boutons sont dans le menu déroulant).
+            async function launchTest(targetId, name, level) {
+                if (!targetId) return;
+                closeAllRowMenus();
                 try {
                     const res = await fetch('/api/backups/test', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ target_id: targetId, level: level })
                     });
-                    if (!res.ok) {
-                        const txt = await res.text();
-                        throw new Error(txt || ('HTTP ' + res.status));
-                    }
+                    if (!res.ok) { const txt = await res.text(); throw new Error(txt || ('HTTP ' + res.status)); }
                     const what = level === 'N1' ? "Vérification d'intégrité" : 'Test de restauration';
                     toast(what + ' lancé pour ' + name, 'success');
-                    scheduleTestRefresh(2000);
+                    scheduleTestRefresh(1500);
                 } catch (e) {
                     toast('Échec : ' + e.message, 'error');
-                } finally {
-                    setTimeout(() => {
-                        btn.disabled = false;
-                        const freshIcon = btn.querySelector('svg');
-                        if (freshIcon && originalIcon) freshIcon.outerHTML = originalIcon;
-                        if (label) label.textContent = originalLabel;
-                    }, 1500);
                 }
             }
 
             // Action SÛRE : vérification d'intégrité (N1, lecture seule) — lancée directement.
             document.querySelectorAll('.check-integrity-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     const targetId = parseInt(btn.getAttribute('data-target-id'), 10);
                     const name = btn.getAttribute('data-target-name') || ('#' + targetId);
-                    launchTest(btn, targetId, name, 'N1');
+                    launchTest(targetId, name, 'N1');
                 });
             });
 
             // Action SENSIBLE : restauration réelle (N2/N3) — passe par une confirmation explicite.
-            let rcTarget = null; // {id, name, btn}
+            let rcTarget = null; // {id, name}
             document.querySelectorAll('.restore-test-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    closeAllRowMenus();
                     const targetId = parseInt(btn.getAttribute('data-target-id'), 10);
                     const name = btn.getAttribute('data-target-name') || ('#' + targetId);
                     if (!targetId) return;
-                    rcTarget = { id: targetId, name: name, btn: btn };
+                    rcTarget = { id: targetId, name: name };
                     const nameEl = document.getElementById('rc-target-name');
                     if (nameEl) nameEl.textContent = name;
                     const def = document.querySelector('input[name="rc-level"][value="N3"]');
@@ -674,13 +714,50 @@
                     const level = sel ? sel.value : 'N3';
                     const t = rcTarget;
                     closeRestoreConfirm();
-                    launchTest(t.btn, t.id, t.name, level);
+                    launchTest(t.id, t.name, level);
                 });
             }
-            // Fermer la modal en cliquant sur l'arrière-plan.
+
+            // --- Rapport de test (clic sur « Dernier test ») ---
+            const VERDICT_FULL = { running: '🧪 En cours', passed: '✅ Réussi', failed: '❌ Échec', pending: 'En attente' };
+            const LEVEL_FULL = { N1: 'Intégrité du fichier (lecture seule)', N2: 'Restauration + redémarrage', N3: 'Restauration + test applicatif' };
+            window.openTestReport = function (targetId, name) {
+                const t = latestTestByTarget[targetId];
+                document.getElementById('tr-target-name').textContent = name || ('#' + targetId);
+                const summary = document.getElementById('tr-summary');
+                const logsEl = document.getElementById('tr-logs');
+                if (!t) {
+                    summary.innerHTML = '<span class="text-on-surface-variant">Aucun test n\'a encore été lancé pour cette cible.</span>';
+                    logsEl.textContent = '';
+                } else {
+                    const dur = (t.RTOSeconds > 0) ? (t.RTOSeconds + ' s') : '—';
+                    summary.innerHTML =
+                        '<div><span class="text-on-surface-variant">Verdict</span><br><strong>' + (VERDICT_FULL[t.Verdict] || t.Verdict) + '</strong></div>' +
+                        '<div><span class="text-on-surface-variant">Type</span><br><strong>' + (LEVEL_FULL[t.Level] || t.Level) + '</strong></div>' +
+                        '<div><span class="text-on-surface-variant">Durée</span><br><strong>' + dur + '</strong></div>' +
+                        '<div><span class="text-on-surface-variant">Date</span><br><strong>' + (fmtDate(t.CompletedAt || t.StartedAt || t.CreatedAt) || '—') + '</strong></div>';
+                    logsEl.textContent = (t.Logs && t.Logs.trim()) ? t.Logs : 'Aucun détail enregistré.';
+                }
+                document.getElementById('test-report-modal').classList.remove('hidden');
+            };
+            window.closeTestReport = function () {
+                document.getElementById('test-report-modal').classList.add('hidden');
+            };
+            document.querySelectorAll('.test-report-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const targetId = parseInt(btn.getAttribute('data-target-id'), 10);
+                    const name = btn.getAttribute('data-target-name') || ('#' + targetId);
+                    openTestReport(targetId, name);
+                });
+            });
+
+            // Fermer les modals en cliquant sur l'arrière-plan.
             (function () {
-                const m = document.getElementById('restore-confirm-modal');
-                if (m) m.addEventListener('click', (e) => { if (e.target === m) closeRestoreConfirm(); });
+                [['restore-confirm-modal', 'closeRestoreConfirm'], ['test-report-modal', 'closeTestReport']].forEach(function (pair) {
+                    const m = document.getElementById(pair[0]);
+                    if (m) m.addEventListener('click', function (e) { if (e.target === m) window[pair[1]](); });
+                });
             })();
 
             // --- Settings modal ------------------------------------------------
