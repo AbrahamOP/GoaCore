@@ -29,16 +29,25 @@ func (h *Handler) HandleBackupPage(w http.ResponseWriter, r *http.Request) {
 		slog.Error("backup: get settings", "error", err)
 	}
 
+	// Whether the Proxmox channel is connected, so the page can guide a fresh admin
+	// to /parametres/sauvegarde instead of showing an empty, jargon-y table. Reuses the
+	// onboarding card logic (DB read only, no network call).
+	channelConfigured := h.channelCard().Configured
+
 	data := struct {
-		Targets         []models.BackupTargetView
-		Summary         models.BackupSummary
-		RotationEnabled bool
-		RotationHour    int
+		Targets           []models.BackupTargetView
+		Summary           models.BackupSummary
+		RotationEnabled   bool
+		RotationHour      int
+		AutoVerifyEnabled bool
+		ChannelConfigured bool
 	}{
-		Targets:         views,
-		Summary:         summary,
-		RotationEnabled: settings.RotationEnabled,
-		RotationHour:    settings.RotationHour,
+		Targets:           views,
+		Summary:           summary,
+		RotationEnabled:   settings.RotationEnabled,
+		RotationHour:      settings.RotationHour,
+		AutoVerifyEnabled: settings.AutoVerifyEnabled,
+		ChannelConfigured: channelConfigured,
 	}
 
 	if err := h.Templates.ExecuteTemplate(w, "backups.html", data); err != nil {
@@ -234,15 +243,16 @@ func (h *Handler) HandleBackupSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		RotationEnabled bool `json:"rotation_enabled"`
-		RotationHour    int  `json:"rotation_hour"`
+		RotationEnabled   bool `json:"rotation_enabled"`
+		RotationHour      int  `json:"rotation_hour"`
+		AutoVerifyEnabled bool `json:"auto_verify_enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.Backup.SetSettings(body.RotationEnabled, body.RotationHour); err != nil {
+	if err := h.Backup.SetSettings(body.RotationEnabled, body.RotationHour, body.AutoVerifyEnabled); err != nil {
 		slog.Error("backup: set settings", "error", err)
 		http.Error(w, "Paramètres invalides (heure 0-23)", http.StatusBadRequest)
 		return
