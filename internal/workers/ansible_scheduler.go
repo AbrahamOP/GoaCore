@@ -139,13 +139,19 @@ func executeScheduledPlaybook(db *sql.DB, sshService *services.SSHService, disco
 	_, copyErr := io.Copy(&buf, cmdOut)
 	output := buf.String()
 
-	// Determine status from output. A read error means the captured output is
-	// partial, so we can't trust an absent "fatal:" — mark it as an error rather
-	// than reporting a possibly-failed run as success.
+	// Statut basé d'abord sur le CODE DE SORTIE réel d'ansible-playbook (cleanup attend
+	// la fin du process et le renvoie), puis sur les marqueurs de sortie en complément.
+	// Un échec avec exit≠0 sans "fatal:"/"UNREACHABLE!" (erreur de syntaxe → "ERROR!",
+	// process tué, etc.) n'est ainsi plus rapporté comme un succès. cleanup() est
+	// idempotent : le defer ci-dessus reste le filet de sécurité (suppression de clé).
+	exitErr := cleanup()
 	status := "success"
 	if copyErr != nil {
 		status = "error"
 		output += fmt.Sprintf("\n[scheduler] error reading playbook output: %v", copyErr)
+	} else if exitErr != nil {
+		status = "error"
+		output += fmt.Sprintf("\n[scheduler] ansible-playbook a échoué (code de sortie) : %v", exitErr)
 	} else if strings.Contains(output, "fatal:") || strings.Contains(output, "UNREACHABLE!") {
 		status = "error"
 	}

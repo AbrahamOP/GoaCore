@@ -79,7 +79,7 @@ func (p *ProxmoxService) ListBackups(rawURL, configuredNode, tokenID, secret, st
 	targetNode := p.resolveNode(client, baseURL, configuredNode, tokenID, secret)
 
 	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/storage/%s/content?content=backup",
-		baseURL, targetNode, url.PathEscape(storage))
+		baseURL, url.PathEscape(targetNode), url.PathEscape(storage))
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
 	resp, err := client.Do(req)
@@ -127,6 +127,9 @@ func (p *ProxmoxService) ListBackups(rawURL, configuredNode, tokenID, secret, st
 // CreateBackup triggers a vzdump for a single guest and returns the task UPID.
 // pveType is informational here (vzdump is node-level); vmid/storage drive the dump.
 func (p *ProxmoxService) CreateBackup(rawURL, configuredNode, tokenID, secret, pveType, vmid, storage string) (string, error) {
+	if err := validateVMID(vmid); err != nil {
+		return "", err
+	}
 	baseURL := p.hostBaseURL(rawURL)
 	client := &http.Client{
 		Timeout:   30 * time.Second,
@@ -141,7 +144,7 @@ func (p *ProxmoxService) CreateBackup(rawURL, configuredNode, tokenID, secret, p
 	formData.Set("mode", "snapshot")
 	formData.Set("remove", "0")
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/vzdump", baseURL, targetNode)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/vzdump", baseURL, url.PathEscape(targetNode))
 	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
 	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

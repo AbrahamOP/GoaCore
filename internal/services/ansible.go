@@ -62,12 +62,16 @@ func ListPlaybooks(dir string) (map[string][]string, error) {
 
 // RunPlaybook executes an ansible-playbook command and returns a streaming reader.
 // The caller MUST call the returned cleanup function after consuming all output.
+// cleanup waits for the process to exit, removes the temp key, and RETURNS the
+// playbook's exit error (nil on success, *exec.ExitError on a non-zero exit) — so the
+// caller can base success/failure on the real exit code rather than on fragile
+// string-matching of the output. cleanup is idempotent (safe to call more than once).
 //
 // remoteUser is REQUIRED (no 'root' fallback): root SSH is disabled fleet-wide
 // (PermitRootLogin=no), so a run must always target an explicit, non-root user.
 // When become is true, --become is appended so privileged tasks escalate via sudo
 // instead of needing a root login.
-func RunPlaybook(playbookPath string, targetIP string, privateKey string, remoteUser string, become bool) (io.ReadCloser, func(), error) {
+func RunPlaybook(playbookPath string, targetIP string, privateKey string, remoteUser string, become bool) (io.ReadCloser, func() error, error) {
 	// Validate IP to prevent command injection via inventory parameter
 	if ip := net.ParseIP(targetIP); ip == nil {
 		return nil, nil, fmt.Errorf("invalid target IP address: %s", targetIP)
@@ -126,13 +130,23 @@ func RunPlaybook(playbookPath string, targetIP string, privateKey string, remote
 		return nil, nil, err
 	}
 
+	// La goroutine attend la fin du process, mémorise son code de sortie puis ferme le
+	// pipe (EOF côté lecteur). `done` est fermé une fois waitErr écrit, ce qui rend
+	// cleanup() sûr en appels multiples (lecture répétée d'un channel fermé).
+	done := make(chan struct{})
+	var waitErr error
 	go func() {
-		cmd.Wait()
+		waitErr = cmd.Wait()
 		pw.Close()
+		close(done)
 	}()
 
-	cleanup := func() {
+	// cleanup attend la fin du process, supprime la clé temporaire et renvoie l'erreur
+	// de sortie réelle (nil si le playbook a réussi). Idempotent.
+	cleanup := func() error {
+		<-done
 		os.Remove(tmpKeyName)
+		return waitErr
 	}
 
 	return pr, cleanup, nil

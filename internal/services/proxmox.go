@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +34,25 @@ func NewProxmoxService(db *sql.DB, skipTLS bool) *ProxmoxService {
 
 func (p *ProxmoxService) tlsConfig() *tls.Config {
 	return &tls.Config{InsecureSkipVerify: p.skipTLS} //nolint:gosec
+}
+
+// snapNameRe = charset accepté par Proxmox pour un nom de snapshot. On rejette le reste
+// AVANT de construire une URL pour qu'un segment forgé ("../", "?", "a/b") n'atteigne
+// jamais un endpoint Proxmox non prévu avec le token privilégié.
+var snapNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+func validateSnapName(snapName string) error {
+	if !snapNameRe.MatchString(snapName) {
+		return fmt.Errorf("nom de snapshot invalide: %q", snapName)
+	}
+	return nil
+}
+
+func validateVMID(vmid string) error {
+	if n, err := strconv.Atoi(vmid); err != nil || n <= 0 {
+		return fmt.Errorf("vmid invalide: %q", vmid)
+	}
+	return nil
 }
 
 // probeNodes performs the bare GET /api2/json/nodes call and returns the decoded
@@ -129,7 +149,7 @@ func (p *ProxmoxService) GetStats(rawURL, configuredNode, tokenID, secret string
 	}
 
 	// 1. Node Status
-	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes/%s/status", baseURL, targetNode), nil)
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes/%s/status", baseURL, url.PathEscape(targetNode)), nil)
 	headers(req)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -188,8 +208,8 @@ func (p *ProxmoxService) GetStats(rawURL, configuredNode, tokenID, secret string
 			}
 		}
 
-		fetchAPI(fmt.Sprintf("%s/api2/json/nodes/%s/qemu", baseURL, targetNode), "VM")
-		fetchAPI(fmt.Sprintf("%s/api2/json/nodes/%s/lxc", baseURL, targetNode), "CT")
+		fetchAPI(fmt.Sprintf("%s/api2/json/nodes/%s/qemu", baseURL, url.PathEscape(targetNode)), "VM")
+		fetchAPI(fmt.Sprintf("%s/api2/json/nodes/%s/lxc", baseURL, url.PathEscape(targetNode)), "CT")
 
 		stats.VMs = allGuests
 
@@ -285,7 +305,7 @@ func (p *ProxmoxService) GetGuestDetail(rawURL, configuredNode, tokenID, secret,
 		}
 	}
 
-	urlStatus := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/status/current", baseURL, targetNode, pveType, vmid)
+	urlStatus := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/status/current", baseURL, url.PathEscape(targetNode), url.PathEscape(pveType), url.PathEscape(vmid))
 	req, _ := http.NewRequest("GET", urlStatus, nil)
 	headers(req)
 	resp, err := client.Do(req)
@@ -323,7 +343,7 @@ func (p *ProxmoxService) GetGuestDetail(rawURL, configuredNode, tokenID, secret,
 	detail.Type = pveType
 
 	// Config
-	urlConfig := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/config", baseURL, targetNode, pveType, vmid)
+	urlConfig := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/config", baseURL, url.PathEscape(targetNode), url.PathEscape(pveType), url.PathEscape(vmid))
 	reqConfig, _ := http.NewRequest("GET", urlConfig, nil)
 	headers(reqConfig)
 	if respConfig, err := client.Do(reqConfig); err == nil && respConfig.StatusCode == 200 {
@@ -355,7 +375,7 @@ func (p *ProxmoxService) FetchSyslog(proxmoxURL, node, tokenID, tokenSecret stri
 		Transport: &http.Transport{TLSClientConfig: p.tlsConfig()},
 		Timeout:   10 * time.Second,
 	}
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/syslog?start=%d&limit=%d", proxmoxURL, node, start, limit)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/syslog?start=%d&limit=%d", proxmoxURL, url.PathEscape(node), start, limit)
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil
@@ -426,7 +446,7 @@ func (p *ProxmoxService) PowerAction(rawURL, configuredNode, tokenID, secret, pv
 		}
 	}
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/status/%s", baseURL, targetNode, pveType, vmid, action)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/status/%s", baseURL, url.PathEscape(targetNode), url.PathEscape(pveType), url.PathEscape(vmid), url.PathEscape(action))
 	req, _ := http.NewRequest("POST", apiURL, nil)
 	addAuth(req)
 	resp, err := client.Do(req)
@@ -488,7 +508,7 @@ func (p *ProxmoxService) ListSnapshots(rawURL, configuredNode, tokenID, secret, 
 		}
 	}
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot", baseURL, targetNode, pveType, vmid)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot", baseURL, url.PathEscape(targetNode), url.PathEscape(pveType), url.PathEscape(vmid))
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	addAuth(req)
 	resp, err := client.Do(req)
@@ -526,6 +546,12 @@ func (p *ProxmoxService) ListSnapshots(rawURL, configuredNode, tokenID, secret, 
 
 // CreateSnapshot creates a new snapshot for a VM/CT.
 func (p *ProxmoxService) CreateSnapshot(rawURL, configuredNode, tokenID, secret, pveType, vmid, snapName, description string) error {
+	if err := validateVMID(vmid); err != nil {
+		return err
+	}
+	if err := validateSnapName(snapName); err != nil {
+		return err
+	}
 	baseURL := strings.TrimRight(rawURL, "/")
 	if u, err := url.Parse(baseURL); err == nil {
 		baseURL = u.Scheme + "://" + u.Host
@@ -573,7 +599,7 @@ func (p *ProxmoxService) CreateSnapshot(rawURL, configuredNode, tokenID, secret,
 	formData.Set("snapname", snapName)
 	formData.Set("description", description)
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot", baseURL, targetNode, pveType, vmid)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot", baseURL, url.PathEscape(targetNode), url.PathEscape(pveType), url.PathEscape(vmid))
 	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
 	addAuth(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -593,6 +619,12 @@ func (p *ProxmoxService) CreateSnapshot(rawURL, configuredNode, tokenID, secret,
 
 // DeleteSnapshot deletes a snapshot from a VM/CT.
 func (p *ProxmoxService) DeleteSnapshot(rawURL, configuredNode, tokenID, secret, pveType, vmid, snapName string) error {
+	if err := validateVMID(vmid); err != nil {
+		return err
+	}
+	if err := validateSnapName(snapName); err != nil {
+		return err
+	}
 	baseURL := strings.TrimRight(rawURL, "/")
 	if u, err := url.Parse(baseURL); err == nil {
 		baseURL = u.Scheme + "://" + u.Host
@@ -636,7 +668,7 @@ func (p *ProxmoxService) DeleteSnapshot(rawURL, configuredNode, tokenID, secret,
 		}
 	}
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot/%s", baseURL, targetNode, pveType, vmid, snapName)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot/%s", baseURL, url.PathEscape(targetNode), url.PathEscape(pveType), url.PathEscape(vmid), url.PathEscape(snapName))
 	req, _ := http.NewRequest("DELETE", apiURL, nil)
 	addAuth(req)
 	resp, err := client.Do(req)
@@ -655,6 +687,12 @@ func (p *ProxmoxService) DeleteSnapshot(rawURL, configuredNode, tokenID, secret,
 
 // RollbackSnapshot rolls back a VM/CT to a specific snapshot.
 func (p *ProxmoxService) RollbackSnapshot(rawURL, configuredNode, tokenID, secret, pveType, vmid, snapName string) error {
+	if err := validateVMID(vmid); err != nil {
+		return err
+	}
+	if err := validateSnapName(snapName); err != nil {
+		return err
+	}
 	baseURL := strings.TrimRight(rawURL, "/")
 	if u, err := url.Parse(baseURL); err == nil {
 		baseURL = u.Scheme + "://" + u.Host
@@ -698,7 +736,7 @@ func (p *ProxmoxService) RollbackSnapshot(rawURL, configuredNode, tokenID, secre
 		}
 	}
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot/%s/rollback", baseURL, targetNode, pveType, vmid, snapName)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/%s/%s/snapshot/%s/rollback", baseURL, url.PathEscape(targetNode), url.PathEscape(pveType), url.PathEscape(vmid), url.PathEscape(snapName))
 	req, _ := http.NewRequest("POST", apiURL, nil)
 	addAuth(req)
 	resp, err := client.Do(req)
@@ -778,7 +816,7 @@ func (p *ProxmoxService) CreateVM(rawURL, configuredNode, tokenID, secret string
 	form.Set("net0", fmt.Sprintf("virtio,bridge=%s", bridge))
 	form.Set("ostype", "l26")
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/qemu", baseURL, targetNode)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/qemu", baseURL, url.PathEscape(targetNode))
 	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(form.Encode()))
 	addAuth(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -861,7 +899,7 @@ func (p *ProxmoxService) CreateCT(rawURL, configuredNode, tokenID, secret string
 		form.Set("ostemplate", template)
 	}
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/lxc", baseURL, targetNode)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/lxc", baseURL, url.PathEscape(targetNode))
 	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(form.Encode()))
 	addAuth(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -886,7 +924,7 @@ func (p *ProxmoxService) CreateCT(rawURL, configuredNode, tokenID, secret string
 func (p *ProxmoxService) detectStorage(client *http.Client, baseURL, node, tokenID, secret, wantContent string) string {
 	const fallback = "local-lvm"
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/storage", baseURL, node)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/storage", baseURL, url.PathEscape(node))
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		slog.Warn("storage auto-detect: request build failed, using fallback", "fallback", fallback, "error", err)
@@ -932,7 +970,7 @@ func (p *ProxmoxService) detectStorage(client *http.Client, baseURL, node, token
 func (p *ProxmoxService) detectBridge(client *http.Client, baseURL, node, tokenID, secret string) string {
 	const fallback = "vmbr0"
 
-	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/network?type=bridge", baseURL, node)
+	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/network?type=bridge", baseURL, url.PathEscape(node))
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		slog.Warn("bridge auto-detect: request build failed, using fallback", "fallback", fallback, "error", err)
@@ -1017,9 +1055,9 @@ func (p *ProxmoxService) getGuestIP(client *http.Client, baseURL, node, tokenID,
 
 	var apiURL string
 	if kind == "CT" {
-		apiURL = fmt.Sprintf("%s/api2/json/nodes/%s/lxc/%d/interfaces", baseURL, node, id)
+		apiURL = fmt.Sprintf("%s/api2/json/nodes/%s/lxc/%d/interfaces", baseURL, url.PathEscape(node), id)
 	} else if kind == "VM" {
-		apiURL = fmt.Sprintf("%s/api2/json/nodes/%s/qemu/%d/agent/network-get-interfaces", baseURL, node, id)
+		apiURL = fmt.Sprintf("%s/api2/json/nodes/%s/qemu/%d/agent/network-get-interfaces", baseURL, url.PathEscape(node), id)
 	} else {
 		return "", nil
 	}
