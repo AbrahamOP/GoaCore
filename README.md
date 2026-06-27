@@ -7,6 +7,7 @@
 [![Image GHCR](https://img.shields.io/badge/ghcr.io-goacore-2496ED?logo=docker&logoColor=white)](https://github.com/AbrahamOP/GoaCore/pkgs/container/goacore)
 ![Statut](https://img.shields.io/badge/Statut-pré--1.0-orange)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
+[![Discord](https://img.shields.io/badge/Discord-Rejoindre%20la%20communauté-5865F2?logo=discord&logoColor=white)](https://discord.gg/pSW7kxJSjf)
 
 GoaCore unifie trois domaines habituellement éclatés entre plusieurs outils — **gestion d'infrastructure**, **opérations de sécurité** et **sauvegardes dont la restaurabilité est réellement prouvée par un test de restauration** — en une suite intégrée que la PME installe chez elle et configure entièrement depuis l'interface web.
 
