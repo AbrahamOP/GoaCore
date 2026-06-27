@@ -152,7 +152,7 @@
                                             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
                                         </button>
                                         <!-- Menu déroulant des actions -->
-                                        <div class="row-menu hidden absolute right-0 top-full mt-2 w-64 origin-top-right bg-surface-container-high border border-outline-variant rounded-xl shadow-xl z-20 p-2 text-left">
+                                        <div class="row-menu hidden fixed w-64 bg-surface-container-high border border-outline-variant rounded-xl shadow-xl z-50 p-2 text-left">
                                             <p class="px-2 pt-1 pb-1 text-[11px] uppercase tracking-widest font-semibold text-on-surface-variant">Destination de la sauvegarde</p>
                                             <select class="backup-destination w-full bg-transparent text-on-surface text-sm rounded-lg border border-outline-variant px-3 py-2 mb-1 focus:outline-none focus:ring-1 focus:ring-primary">
                                                 <option value="local" selected>Local</option>
@@ -654,8 +654,28 @@
             }
 
             // --- Menu d'actions par ligne (⋮) ---
+            // Le menu est en position:fixed et positionné au clic (jamais clippé par le
+            // conteneur scrollable, et s'ouvre vers le HAUT quand il n'y a pas la place en
+            // bas — cas des dernières lignes du tableau).
             function closeAllRowMenus() {
                 document.querySelectorAll('.row-menu').forEach(m => m.classList.add('hidden'));
+            }
+            function positionRowMenu(btn, menu) {
+                menu.classList.remove('hidden'); // rendre mesurable
+                const r = btn.getBoundingClientRect();
+                const mw = menu.offsetWidth || 256;
+                const mh = menu.offsetHeight;
+                const margin = 8;
+                let left = r.right - mw;           // aligné sur le bord droit du bouton
+                if (left < margin) left = margin;
+                if (left + mw > window.innerWidth - margin) left = window.innerWidth - mw - margin;
+                let top = r.bottom + margin;       // par défaut : sous le bouton
+                if (top + mh > window.innerHeight - margin) {
+                    top = r.top - mh - margin;     // pas de place en bas → au-dessus
+                    if (top < margin) top = margin;
+                }
+                menu.style.left = left + 'px';
+                menu.style.top = top + 'px';
             }
             document.querySelectorAll('.row-menu-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
@@ -663,12 +683,15 @@
                     const menu = btn.parentElement.querySelector('.row-menu');
                     const wasHidden = menu.classList.contains('hidden');
                     closeAllRowMenus();
-                    if (wasHidden) menu.classList.remove('hidden');
+                    if (wasHidden) positionRowMenu(btn, menu);
                 });
             });
             // Un clic DANS un menu ne le ferme pas (selects, etc.) ; un clic ailleurs ferme.
             document.querySelectorAll('.row-menu').forEach(m => m.addEventListener('click', e => e.stopPropagation()));
             document.addEventListener('click', closeAllRowMenus);
+            // Un menu en position:fixed se désaligne si on scrolle/redimensionne → on le ferme.
+            window.addEventListener('scroll', closeAllRowMenus, true);
+            window.addEventListener('resize', closeAllRowMenus);
 
             // Lance un test (N1 intégrité OU N2/N3 restauration). Le feedback apparaît
             // dans la colonne « Dernier test » (les boutons sont dans le menu déroulant).
