@@ -49,7 +49,7 @@ jobs:
           def post(webhook, payload):
               req = urllib.request.Request(
                   webhook, data=json.dumps(payload).encode(),
-                  headers={"Content-Type": "application/json"})
+                  headers={"Content-Type": "application/json", "User-Agent": "GoaCore-Release/1.0"})
               urllib.request.urlopen(req, timeout=20)
 
           post(os.environ["WEBHOOK_ANNONCES"], annonce)
