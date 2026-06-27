@@ -68,9 +68,10 @@ GoaCore est aujourd'hui un dashboard Go (chi / MySQL) très fonctionnel mais **c
 - **Effort** : élevé · **Dépendances** : Jalons 1-2.
 - **Definition of Done** : une PME active l'off-site et le restore-test depuis l'UI ; le helper s'installe via une commande générée ; le cloud connecté est celui du client.
 
-### Jalon 4 — Installation clé en main + publication open-source
+### Jalon 4 — Installation clé en main + publication open-source — ✅ Réalisé (2026-06-27)
 
 - **Objectif** : rendre l'installation triviale et publier le projet proprement.
+- **Livré** : image Docker publique multi-arch (`ghcr.io/abrahamop/goacore`, workflow `publish-image.yml` sur tag), `install/docker-compose.yml` + `.env.example` autonomes, « Quick start » README, repo public AGPL-3.0 nettoyé (aucun secret ni IP/chemin perso, y compris dans les tests).
 - **Périmètre** :
   - **Docker Compose** documenté, **assistant de configuration** (setup wizard), **defaults sains**.
   - `LICENSE`, `README`, documentation d'installation et d'usage, `CONTRIBUTING`.

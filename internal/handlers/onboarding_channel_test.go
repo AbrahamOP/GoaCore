@@ -96,12 +96,12 @@ func TestBuildInstallerScript_IsIdempotentAndSafe(t *testing.T) {
 // bare host (the channel itself appends the SSH :22).
 func TestHostFromURL(t *testing.T) {
 	cases := map[string]string{
-		"https://192.168.40.20:8006":      "192.168.40.20",
-		"https://192.168.40.20:8006/api2": "192.168.40.20",
-		"http://pve.local:8006":           "pve.local",
-		"https://10.0.0.1":                "10.0.0.1",
-		"":                                "",
-		"https://host:8006/?x=1":          "host",
+		"https://192.0.2.20:8006":      "192.0.2.20",
+		"https://192.0.2.20:8006/api2": "192.0.2.20",
+		"http://pve.local:8006":        "pve.local",
+		"https://10.0.0.1":             "10.0.0.1",
+		"":                             "",
+		"https://host:8006/?x=1":       "host",
 	}
 	for in, want := range cases {
 		if got := hostFromURL(in); got != want {

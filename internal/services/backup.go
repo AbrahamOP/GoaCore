@@ -463,6 +463,61 @@ func (s *BackupService) maybeAutoVerify(targetID int, name string) {
 	}
 }
 
+// GuestOption décrit une machine Proxmox connue (cache de monitoring) proposable
+// comme nouvelle cible de sauvegarde dans l'UI.
+type GuestOption struct {
+	VMID int    `json:"vmid"`
+	Name string `json:"name"`
+	Type string `json:"type"` // "qemu" (VM) | "lxc" (CT)
+}
+
+// AvailableGuests liste les machines connues (vm_cache, alimenté par le monitoring
+// Proxmox) qui ne sont PAS encore des cibles de sauvegarde — pour le sélecteur
+// « Ajouter une machine ». Ne dépend que de la DB (pas d'appel Proxmox).
+func (s *BackupService) AvailableGuests() ([]GuestOption, error) {
+	rows, err := s.db.Query(`
+		SELECT vmid, name, vm_type FROM vm_cache
+		WHERE CAST(vmid AS CHAR) NOT IN (SELECT source_ref FROM backup_targets)
+		ORDER BY vmid`)
+	if err != nil {
+		return nil, fmt.Errorf("available guests: %w", err)
+	}
+	defer rows.Close()
+	out := []GuestOption{}
+	for rows.Next() {
+		var g GuestOption
+		var name, vmType sql.NullString
+		if err := rows.Scan(&g.VMID, &name, &vmType); err != nil {
+			continue
+		}
+		g.Name = name.String
+		g.Type = vmType.String
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// AddTarget enregistre manuellement une cible de sauvegarde (machine Proxmox) qui n'a
+// pas encore d'archive, afin de pouvoir la sauvegarder depuis l'UI. vmType doit être
+// "qemu" (VM) ou "lxc" (CT) — le même type que celui attendu par vzdump. Le nom est
+// nettoyé avant persistance. Idempotent (INSERT IGNORE sur source_ref).
+func (s *BackupService) AddTarget(vmid int, vmType, name string) error {
+	if vmid <= 0 {
+		return fmt.Errorf("VMID invalide : %d", vmid)
+	}
+	vmType = strings.ToLower(strings.TrimSpace(vmType))
+	if vmType != "qemu" && vmType != "lxc" {
+		return fmt.Errorf("type invalide %q (attendu : qemu ou lxc)", vmType)
+	}
+	name = sanitizeName(name, vmid)
+	if _, err := s.db.Exec(
+		`INSERT IGNORE INTO backup_targets (name, target_type, source_ref, storage) VALUES (?, ?, ?, ?)`,
+		name, vmType, strconv.Itoa(vmid), s.defaultBackupStorage); err != nil {
+		return fmt.Errorf("add backup target: %w", err)
+	}
+	return nil
+}
+
 // UpdateTargetSettings updates a single target's healthcheck strategy and backup
 // retention count. All inputs are validated (closed healthcheck-type set, numeric
 // port when type=port, non-negative retention) before any write.
