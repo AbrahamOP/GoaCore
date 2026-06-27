@@ -75,6 +75,10 @@ func (d *DiscordBot) SendAlert(title, message, severity string) error {
 	if d == nil || d.session == nil {
 		return fmt.Errorf("discord session not initialized")
 	}
+	// title/message proviennent de Wazuh + sortie LLM (non fiables) → neutraliser
+	// les mentions/markdown avant de les embarquer dans l'embed.
+	title = neutralizeDiscord(title)
+	message = neutralizeDiscord(message)
 
 	color := 0x00ff00 // Green (Info)
 	switch severity {
@@ -104,6 +108,10 @@ func (d *DiscordBot) SendAnsibleAlert(playbook, vmName string, vmid int, status,
 	if d == nil || d.session == nil {
 		return fmt.Errorf("discord session not initialized")
 	}
+	// output (sortie brute du playbook) et vmName sont non fiables → neutraliser.
+	playbook = neutralizeDiscord(playbook)
+	vmName = neutralizeDiscord(vmName)
+	output = neutralizeDiscord(output)
 
 	color := 0x00ff00 // Green — success
 	emoji := "✅"
@@ -275,6 +283,10 @@ func (d *DiscordBot) SendAuthAlert(title, message string, blocked bool) error {
 	if d == nil || d.session == nil {
 		return fmt.Errorf("discord session not initialized")
 	}
+	// message contient le nom d'utilisateur d'une tentative de login (fourni par un
+	// client NON authentifié) → neutraliser les mentions/markdown (anti @everyone).
+	title = neutralizeDiscord(title)
+	message = neutralizeDiscord(message)
 
 	channelID := d.authChannelID
 	if channelID == "" {
