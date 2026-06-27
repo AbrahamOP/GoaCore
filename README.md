@@ -89,7 +89,31 @@ GoaCore est conçu **souverain et privacy-by-design**, et ce n'est pas un argume
 
 ## Installation
 
-### Prérequis
+GoaCore se déploie avec Docker. La méthode rapide ne nécessite **aucune compilation** :
+l'image publique multi-arch (amd64 / arm64) est tirée depuis GitHub Container Registry.
+
+### Installation rapide (image pré-construite) — recommandée
+
+```bash
+mkdir goacore && cd goacore
+curl -O https://raw.githubusercontent.com/AbrahamOP/GoaCore/main/install/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/AbrahamOP/GoaCore/main/install/.env.example
+# Éditez .env : générez SESSION_SECRET (openssl rand -hex 32) + des mots de passe MySQL forts
+docker compose up -d
+```
+
+Ouvrez ensuite `https://<hôte>:8443/setup` pour créer le compte administrateur. Proxmox,
+Wazuh, IA et Discord sont optionnels et se configurent depuis l'interface. L'image est
+publiée sur [`ghcr.io/abrahamop/goacore`](https://github.com/AbrahamOP/GoaCore/pkgs/container/goacore)
+à chaque version (`vX.Y.Z`) ; épinglez une version via `GOACORE_TAG` dans `.env`.
+
+---
+
+### Installation depuis les sources
+
+Pour contribuer ou construire l'image vous-même.
+
+#### Prérequis
 
 - **Docker** et **Docker Compose**.
 - Un serveur **Proxmox VE** (pour les modules infra, console, GoaBackup et test de restauration).

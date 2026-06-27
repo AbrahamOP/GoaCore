@@ -1,0 +1,85 @@
+# GoaCore — installation clé en main (image pré-construite, sans compilation).
+#
+# Démarrage :
+#   1. Récupérer ce fichier et le .env.example voisin :
+#        curl -O https://raw.githubusercontent.com/AbrahamOP/GoaCore/main/install/docker-compose.yml
+#        curl -o .env https://raw.githubusercontent.com/AbrahamOP/GoaCore/main/install/.env.example
+#   2. Éditer .env : générer SESSION_SECRET (openssl rand -hex 32) et définir des mots
+#      de passe MySQL forts. Le reste (Proxmox, Wazuh, Discord, IA) est OPTIONNEL et se
+#      configure ensuite depuis l'interface web.
+#   3. docker compose up -d
+#   4. Ouvrir https://<hôte>:8443/setup pour créer le compte administrateur.
+#
+# L'app crée tout son schéma de base au premier démarrage (aucun script SQL requis).
+# Elle est servie en HTTPS (certificat auto-signé) — à placer derrière un reverse proxy.
+services:
+  app:
+    image: ghcr.io/abrahamop/goacore:${GOACORE_TAG:-latest}
+    container_name: goacore_app
+    ports:
+      - "8443:8443"
+    environment:
+      # --- Base de données (réseau interne compose : l'hôte "db" est résolu) ---
+      - DB_HOST=db:3306
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - PORT=8080
+      - HTTPS_PORT=8443
+      # --- Sécurité (REQUIS) ---
+      - SESSION_SECRET=${SESSION_SECRET}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - SKIP_TLS_VERIFY=${SKIP_TLS_VERIFY:-false}
+      # --- Proxmox (optionnel — configurable depuis l'UI) ---
+      - PROXMOX_URL=${PROXMOX_URL:-}
+      - PROXMOX_NODE=${PROXMOX_NODE:-pve}
+      - PROXMOX_TOKEN_ID=${PROXMOX_TOKEN_ID:-}
+      - PROXMOX_TOKEN_SECRET=${PROXMOX_TOKEN_SECRET:-}
+      - PROXMOX_STORAGE=${PROXMOX_STORAGE:-}
+      - PROXMOX_BRIDGE=${PROXMOX_BRIDGE:-}
+      # --- Wazuh (optionnel) ---
+      - WAZUH_API_URL=${WAZUH_API_URL:-}
+      - WAZUH_USER=${WAZUH_USER:-}
+      - WAZUH_PASSWORD=${WAZUH_PASSWORD:-}
+      - WAZUH_INDEXER_URL=${WAZUH_INDEXER_URL:-}
+      - WAZUH_INDEXER_USER=${WAZUH_INDEXER_USER:-}
+      - WAZUH_INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:-}
+      # --- Discord (optionnel) ---
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      - DISCORD_AUTH_CHANNEL_ID=${DISCORD_AUTH_CHANNEL_ID:-}
+      - DISCORD_ANSIBLE_CHANNEL_ID=${DISCORD_ANSIBLE_CHANNEL_ID:-}
+      # --- IA / enrichissement SOAR (optionnel) ---
+      - AI_PROVIDER=${AI_PROVIDER:-}
+      - AI_URL=${AI_URL:-}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ansible_playbooks:/app/playbooks
+
+  db:
+    image: mysql:8.0
+    container_name: goacore_db
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  mysql_data:
+  ansible_playbooks:
