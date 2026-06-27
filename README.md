@@ -210,7 +210,7 @@ Le test de restauration est **destructif par nature** : il restaure dans une pla
 
 ## Limites connues
 
-- **Pré-1.0, développement actif** : le code est public (AGPL-3.0), mais l'installation clé en main et le polish produit sont encore en cours (**Jalon 4**). Ce n'est pas une release stable largement déployée.
+- **Pré-1.0, développement actif** : le code est public (AGPL-3.0) et l'installation clé en main est en place (image publique GHCR + Docker Compose), mais le polish produit continue (**Jalon 5**). Ce n'est pas une release stable largement déployée.
 - **Centré Proxmox** : la gestion des VMs, la console, le canal GoaBackup et la sandbox de test de restauration sont câblés spécifiquement pour Proxmox VE. Ce n'est pas un gestionnaire d'hyperviseur générique.
 - **Off-site cloud via rclone** : suppose que rclone est configuré sur l'hôte Proxmox par l'admin. Les remotes type S3 / Backblaze sont self-service, mais la mise en place **Google Drive est guidée** (l'admin lance encore `rclone config` sur l'hôte pour l'étape OAuth headless) — **pas** un flux OAuth complet in-app.
 - **Wazuh, IA et Discord sont optionnels** : sans aucun configuré, GoaCore est essentiellement un dashboard Proxmox + backup.
@@ -228,7 +228,8 @@ GoaCore passe d'un dashboard homelab à un produit open-source installable par u
 - **Jalon 1** — Onboarding infrastructure in-app ✅
 - **Jalon 2** — Dé-câbler les valeurs en dur + auto-détection ✅
 - **Jalon 3** — Canal & destinations de backup en self-service ✅
-- **Jalon 4** — Installation clé en main + **publication open-source** 🔄 *(en cours — repo public & AGPL-3.0, install en finalisation)*
+- **Jalon 4** — Installation clé en main + **publication open-source** ✅ *(repo public AGPL-3.0, image Docker publique multi-arch sur GHCR, install Docker Compose clé en main, repo nettoyé des valeurs perso)*
+- **Jalon 5** — Industrialisation continue 🔄 *(CI/tests, polish des modules, doc — en cours)*
 
 ---
 

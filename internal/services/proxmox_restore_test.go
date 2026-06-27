@@ -67,9 +67,9 @@ func TestBuildSandboxNetN(t *testing.T) {
 		{"qemu empty fallback", "", "qemu", 99, "vmbr1", "virtio,bridge=vmbr1,tag=99"},
 		{
 			"lxc replace existing tag and bridge",
-			"name=eth0,bridge=vmbr0,ip=192.168.20.11/24,tag=20",
+			"name=eth0,bridge=vmbr0,ip=192.0.2.11/24,tag=20",
 			"lxc", 99, "vmbr1",
-			"name=eth0,bridge=vmbr1,ip=192.168.20.11/24,tag=99",
+			"name=eth0,bridge=vmbr1,ip=192.0.2.11/24,tag=99",
 		},
 		{
 			"qemu add tag, keep model+mac",

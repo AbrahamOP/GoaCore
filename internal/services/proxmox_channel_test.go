@@ -33,9 +33,9 @@ func TestProxmoxChannel_ConfiguredAcceptsEitherKeySource(t *testing.T) {
 // path), so run() takes the in-memory parse path.
 func TestNewProxmoxChannelFromKey_NormalizesHostAndHoldsKeyInMemory(t *testing.T) {
 	pem := []byte("-----BEGIN OPENSSH PRIVATE KEY-----\nx\n-----END OPENSSH PRIVATE KEY-----\n")
-	c := NewProxmoxChannelFromKey("192.168.40.20", "goabackup", pem)
-	if c.host != "192.168.40.20:22" {
-		t.Errorf("host = %q, want 192.168.40.20:22 (default port appended)", c.host)
+	c := NewProxmoxChannelFromKey("192.0.2.20", "goabackup", pem)
+	if c.host != "192.0.2.20:22" {
+		t.Errorf("host = %q, want 192.0.2.20:22 (default port appended)", c.host)
 	}
 	if string(c.keyPEM) != string(pem) {
 		t.Error("keyPEM not carried in memory")

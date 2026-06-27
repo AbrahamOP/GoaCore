@@ -36,7 +36,7 @@ func TestGoabackupChannelExtra(t *testing.T) {
 // no DB required.
 func TestSaveGoabackupChannel_PrivateKeyNeverInExtra(t *testing.T) {
 	form := models.GoabackupChannelForm{
-		Host:          "192.168.40.20:22",
+		Host:          "192.0.2.20:22",
 		User:          "goabackup",
 		PrivateKeyPEM: "-----BEGIN OPENSSH PRIVATE KEY-----\nSECRETMATERIAL\n-----END OPENSSH PRIVATE KEY-----\n",
 		PublicKey:     "ssh-ed25519 AAAAC3Nz... goabackup-channel",

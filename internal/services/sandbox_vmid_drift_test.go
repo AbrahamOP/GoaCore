@@ -14,7 +14,7 @@ import (
 // helperRunnerPath returns the path to the canonical goabackup helper script the Go
 // engine and the bash autority must agree on. CI vendors it at deploy/goabackup/ in
 // the repo; a GOABACKUP_RUNNER_PATH env override lets a developer point the test at
-// the live /home/claude/goabackup/goabackup-runner.sh during local work. The test
+// a local development copy of goabackup-runner.sh during local work. The test
 // SKIPS (not fails) when neither is present, so a checkout without the vendored copy
 // still builds — but on CI the vendored file makes the drift guard mandatory.
 func helperRunnerPath(t *testing.T) string {

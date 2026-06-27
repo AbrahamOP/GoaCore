@@ -18,15 +18,15 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "valid https urls",
 			cfg: Config{
-				ProxmoxURL:      "https://192.168.40.20:8006",
-				WazuhAPIURL:     "https://192.168.30.10:55000",
-				WazuhIndexerURL: "https://192.168.30.10:9200",
-				AIURL:           "http://192.168.20.10:11434",
+				ProxmoxURL:      "https://192.0.2.20:8006",
+				WazuhAPIURL:     "https://192.0.2.30:55000",
+				WazuhIndexerURL: "https://192.0.2.30:9200",
+				AIURL:           "http://192.0.2.10:11434",
 			},
 		},
 		{
 			name:    "missing scheme on a blocking URL (Wazuh) is fatal",
-			cfg:     Config{WazuhAPIURL: "192.168.30.10:55000"},
+			cfg:     Config{WazuhAPIURL: "192.0.2.30:55000"},
 			wantErr: true,
 		},
 		{
@@ -43,7 +43,7 @@ func TestConfigValidate(t *testing.T) {
 			// Since Jalon 1 a malformed PROXMOX_URL from the env is NOT fatal: the
 			// connection can be (re)configured in-app, so Validate must not block boot.
 			name: "malformed PROXMOX_URL is no longer fatal",
-			cfg:  Config{ProxmoxURL: "192.168.40.20:8006"},
+			cfg:  Config{ProxmoxURL: "192.0.2.20:8006"},
 		},
 	}
 	for _, tt := range tests {
@@ -120,8 +120,8 @@ func TestLoadDBCredentialsNoDefault(t *testing.T) {
 }
 
 func TestValidateURL(t *testing.T) {
-	good := []string{"https://192.168.40.20:8006", "http://host", "https://h:9200/path"}
-	bad := []string{"192.168.40.20:8006", "https://", "ht!tp://%zz", ""}
+	good := []string{"https://192.0.2.20:8006", "http://host", "https://h:9200/path"}
+	bad := []string{"192.0.2.20:8006", "https://", "ht!tp://%zz", ""}
 	for _, u := range good {
 		if err := ValidateURL(u); err != nil {
 			t.Errorf("ValidateURL(%q) = %v, want nil", u, err)
@@ -138,10 +138,10 @@ func TestProxmoxURLWarning(t *testing.T) {
 	if w := (&Config{}).ProxmoxURLWarning(); w != "" {
 		t.Errorf("empty PROXMOX_URL should not warn, got %q", w)
 	}
-	if w := (&Config{ProxmoxURL: "https://192.168.40.20:8006"}).ProxmoxURLWarning(); w != "" {
+	if w := (&Config{ProxmoxURL: "https://192.0.2.20:8006"}).ProxmoxURLWarning(); w != "" {
 		t.Errorf("valid PROXMOX_URL should not warn, got %q", w)
 	}
-	if w := (&Config{ProxmoxURL: "192.168.40.20:8006"}).ProxmoxURLWarning(); w == "" {
+	if w := (&Config{ProxmoxURL: "192.0.2.20:8006"}).ProxmoxURLWarning(); w == "" {
 		t.Error("malformed PROXMOX_URL should warn, got empty")
 	}
 }
