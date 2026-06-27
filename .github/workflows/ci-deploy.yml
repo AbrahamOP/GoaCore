@@ -144,6 +144,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WEBHOOK_ANNONCES: ${{ secrets.DISCORD_WEBHOOK_ANNONCES }}
+          WEBHOOK_CHANGELOG: ${{ secrets.DISCORD_WEBHOOK_CHANGELOG }}
           REPO: ${{ github.repository }}
         run: |
           set -e
@@ -238,6 +240,32 @@ jobs:
                 \"description\": \"Nouvelle release deployee en production.\\n\\n:link: ${RELEASE_URL}\",
                 \"color\": 5763719,
                 \"footer\": {\"text\": \"Auto-release | main\"}
+              }]
+            }" || true
+          fi
+
+          # Annonces communauté : #annonces (résumé) + #changelog (notes complètes)
+          if [ -n "$WEBHOOK_ANNONCES" ]; then
+            curl -sf -H "Content-Type: application/json" -H "User-Agent: GoaCore-Release/1.0" -X POST "$WEBHOOK_ANNONCES" -d "{
+              \"username\": \"GoaCore\",
+              \"embeds\": [{
+                \"title\": \"🚀 GoaCore ${NEW_TAG} est disponible !\",
+                \"url\": \"${RELEASE_URL}\",
+                \"description\": \"Une nouvelle version de **GoaCore** vient de sortir ! 🎉\\nRetrouve le détail des changements dans le changelog. 📋\",
+                \"color\": 1940085,
+                \"footer\": {\"text\": \"GoaCore • ${NEW_TAG}\"}
+              }]
+            }" || true
+          fi
+          if [ -n "$WEBHOOK_CHANGELOG" ]; then
+            curl -sf -H "Content-Type: application/json" -H "User-Agent: GoaCore-Release/1.0" -X POST "$WEBHOOK_CHANGELOG" -d "{
+              \"username\": \"GoaCore\",
+              \"embeds\": [{
+                \"title\": \"📋 GoaCore ${NEW_TAG}\",
+                \"url\": \"${RELEASE_URL}\",
+                \"description\": \"${BODY_ESCAPED}\",
+                \"color\": 5458615,
+                \"footer\": {\"text\": \"GoaCore • ${NEW_TAG}\"}
               }]
             }" || true
           fi
