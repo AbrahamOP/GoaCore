@@ -167,6 +167,9 @@ func (w *WazuhIndexerClient) GetVulnerabilities(agentID string) ([]models.WazuhV
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		if resp.StatusCode == http.StatusNotFound {
+			return []models.WazuhVuln{}, nil
+		}
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("Indexer Error %d: %s", resp.StatusCode, string(body))
 	}

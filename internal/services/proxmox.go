@@ -80,7 +80,8 @@ func (p *ProxmoxService) probeNodes(rawURL, tokenID, secret string) ([]models.Pv
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API Error Nodes HTTP %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "endpoint", "nodes", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("erreur API Proxmox /nodes (HTTP %d)", resp.StatusCode)
 	}
 	var nodeList models.PveNodesList
 	if err := json.Unmarshal(body, &nodeList); err != nil {
@@ -159,7 +160,8 @@ func (p *ProxmoxService) GetStats(rawURL, configuredNode, tokenID, secret string
 	resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return stats, fmt.Errorf("API Error Node Status (%s) HTTP %d: %s", targetNode, resp.StatusCode, string(bodyStatus))
+		slog.Warn("proxmox API error", "endpoint", "node status", "node", targetNode, "status", resp.StatusCode, "body", string(bodyStatus))
+		return stats, fmt.Errorf("erreur API Proxmox (statut du nœud, HTTP %d)", resp.StatusCode)
 	}
 
 	var nodeStatus models.PveNodeStatus
@@ -457,7 +459,8 @@ func (p *ProxmoxService) PowerAction(rawURL, configuredNode, tokenID, secret, pv
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "status", resp.StatusCode, "body", string(body))
+		return fmt.Errorf("erreur API Proxmox (HTTP %d)", resp.StatusCode)
 	}
 
 	return nil
@@ -519,7 +522,8 @@ func (p *ProxmoxService) ListSnapshots(rawURL, configuredNode, tokenID, secret, 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("erreur API Proxmox (HTTP %d)", resp.StatusCode)
 	}
 
 	var snapList models.PveSnapshotList
@@ -611,7 +615,8 @@ func (p *ProxmoxService) CreateSnapshot(rawURL, configuredNode, tokenID, secret,
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "status", resp.StatusCode, "body", string(body))
+		return fmt.Errorf("erreur API Proxmox (HTTP %d)", resp.StatusCode)
 	}
 
 	return nil
@@ -679,7 +684,8 @@ func (p *ProxmoxService) DeleteSnapshot(rawURL, configuredNode, tokenID, secret,
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "status", resp.StatusCode, "body", string(body))
+		return fmt.Errorf("erreur API Proxmox (HTTP %d)", resp.StatusCode)
 	}
 
 	return nil
@@ -747,7 +753,8 @@ func (p *ProxmoxService) RollbackSnapshot(rawURL, configuredNode, tokenID, secre
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "status", resp.StatusCode, "body", string(body))
+		return fmt.Errorf("erreur API Proxmox (HTTP %d)", resp.StatusCode)
 	}
 
 	return nil
@@ -829,7 +836,8 @@ func (p *ProxmoxService) CreateVM(rawURL, configuredNode, tokenID, secret string
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "status", resp.StatusCode, "body", string(body))
+		return fmt.Errorf("erreur API Proxmox (HTTP %d)", resp.StatusCode)
 	}
 	return nil
 }
@@ -912,7 +920,8 @@ func (p *ProxmoxService) CreateCT(rawURL, configuredNode, tokenID, secret string
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		slog.Warn("proxmox API error", "status", resp.StatusCode, "body", string(body))
+		return fmt.Errorf("erreur API Proxmox (HTTP %d)", resp.StatusCode)
 	}
 	return nil
 }

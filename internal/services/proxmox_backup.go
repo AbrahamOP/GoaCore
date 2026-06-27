@@ -38,7 +38,10 @@ func (p *ProxmoxService) hostBaseURL(rawURL string) string {
 // resolveNode returns the configured node if online, else the first online node.
 func (p *ProxmoxService) resolveNode(client *http.Client, baseURL, configuredNode, tokenID, secret string) string {
 	targetNode := configuredNode
-	reqNodes, _ := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes", baseURL), nil)
+	reqNodes, err := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes", baseURL), nil)
+	if err != nil {
+		return targetNode
+	}
 	reqNodes.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
 	respNodes, err := client.Do(reqNodes)
 	if err != nil {
@@ -80,7 +83,10 @@ func (p *ProxmoxService) ListBackups(rawURL, configuredNode, tokenID, secret, st
 
 	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/storage/%s/content?content=backup",
 		baseURL, url.PathEscape(targetNode), url.PathEscape(storage))
-	req, _ := http.NewRequest("GET", apiURL, nil)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
 	resp, err := client.Do(req)
 	if err != nil {
@@ -89,6 +95,9 @@ func (p *ProxmoxService) ListBackups(rawURL, configuredNode, tokenID, secret, st
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
+		if len(body) == 0 {
+			return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, resp.Status)
+		}
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -145,7 +154,10 @@ func (p *ProxmoxService) CreateBackup(rawURL, configuredNode, tokenID, secret, p
 	formData.Set("remove", "0")
 
 	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/vzdump", baseURL, url.PathEscape(targetNode))
-	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return "", err
+	}
 	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := client.Do(req)
@@ -156,6 +168,9 @@ func (p *ProxmoxService) CreateBackup(rawURL, configuredNode, tokenID, secret, p
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(body) == 0 {
+			return "", fmt.Errorf("API error %d: %s", resp.StatusCode, resp.Status)
+		}
 		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -191,7 +206,10 @@ func (p *ProxmoxService) GetTaskStatus(rawURL, configuredNode, tokenID, secret, 
 
 	apiURL := fmt.Sprintf("%s/api2/json/nodes/%s/tasks/%s/status",
 		baseURL, url.PathEscape(targetNode), url.PathEscape(upid))
-	req, _ := http.NewRequest("GET", apiURL, nil)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return "", "", err
+	}
 	req.Header.Add("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, secret))
 	resp, err := client.Do(req)
 	if err != nil {
@@ -201,6 +219,9 @@ func (p *ProxmoxService) GetTaskStatus(rawURL, configuredNode, tokenID, secret, 
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(body) == 0 {
+			return "", "", fmt.Errorf("API error %d: %s", resp.StatusCode, resp.Status)
+		}
 		return "", "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 	}
 
