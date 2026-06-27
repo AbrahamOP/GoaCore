@@ -1,0 +1,58 @@
+name: Annonce Discord (release)
+
+# Poste automatiquement dans #annonces (résumé) et #changelog (détails)
+# du serveur Discord GoaCore à chaque release publiée sur GitHub.
+on:
+  release:
+    types: [published]
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publier sur Discord
+        env:
+          WEBHOOK_ANNONCES: ${{ secrets.DISCORD_WEBHOOK_ANNONCES }}
+          WEBHOOK_CHANGELOG: ${{ secrets.DISCORD_WEBHOOK_CHANGELOG }}
+          TAG: ${{ github.event.release.tag_name }}
+          RNAME: ${{ github.event.release.name }}
+          RURL: ${{ github.event.release.html_url }}
+          RBODY: ${{ github.event.release.body }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request
+
+          tag  = os.environ.get("TAG", "")
+          name = os.environ.get("RNAME") or tag or "Nouvelle version"
+          url  = os.environ.get("RURL", "")
+          body = (os.environ.get("RBODY") or "").strip()
+
+          notes = body if body else "Consulte les notes de version sur GitHub."
+          if len(notes) > 3800:
+              notes = notes[:3800].rstrip() + "\n…"
+
+          annonce = {"username": "GoaCore", "embeds": [{
+              "title": f"🚀 {name} est disponible !",
+              "url": url,
+              "description": "Une nouvelle version de **GoaCore** vient de sortir ! 🎉\n"
+                             "Retrouve le détail des changements dans le changelog. 📋",
+              "color": 0x1D9E75,
+              "footer": {"text": f"GoaCore • {tag}"}}]}
+
+          changelog = {"username": "GoaCore", "embeds": [{
+              "title": f"📋 {name}",
+              "url": url,
+              "description": notes + f"\n\n🔗 [Voir la release sur GitHub]({url})",
+              "color": 0x534AB7,
+              "footer": {"text": f"GoaCore • {tag}"}}]}
+
+          def post(webhook, payload):
+              req = urllib.request.Request(
+                  webhook, data=json.dumps(payload).encode(),
+                  headers={"Content-Type": "application/json"})
+              urllib.request.urlopen(req, timeout=20)
+
+          post(os.environ["WEBHOOK_ANNONCES"], annonce)
+          post(os.environ["WEBHOOK_CHANGELOG"], changelog)
+          print("Annonces Discord publiées.")
+          PY
