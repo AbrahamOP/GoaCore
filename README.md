@@ -4,6 +4,7 @@
 
 ![Go](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+[![Image GHCR](https://img.shields.io/badge/ghcr.io-goacore-2496ED?logo=docker&logoColor=white)](https://github.com/AbrahamOP/GoaCore/pkgs/container/goacore)
 ![Statut](https://img.shields.io/badge/Statut-pré--1.0-orange)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
 
