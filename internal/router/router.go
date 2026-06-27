@@ -222,6 +222,8 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 		r.Get("/api/backups/tests", h.HandleBackupTestsList)
 		r.Post("/api/backups/settings", h.HandleBackupSettings)
 		r.Post("/api/backups/target-settings", h.HandleBackupTargetSettings)
+		r.Get("/api/backups/available-guests", h.HandleBackupAvailableGuests)
+		r.Post("/api/backups/targets", h.HandleBackupAddTarget)
 
 		// User management & audit trail. /users is a legacy alias for the hub
 		// Utilisateurs section.

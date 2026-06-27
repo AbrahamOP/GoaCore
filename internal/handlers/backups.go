@@ -299,3 +299,48 @@ func (h *Handler) HandleBackupTargetSettings(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 }
+
+// HandleBackupAvailableGuests liste les machines Proxmox connues (cache de monitoring)
+// qui ne sont pas encore des cibles de sauvegarde, pour le sélecteur « Ajouter une
+// machine » (GET /api/backups/available-guests). Admin-only.
+func (h *Handler) HandleBackupAvailableGuests(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r, h.SessionStore, h.DB) {
+		return
+	}
+	guests, err := h.Backup.AvailableGuests()
+	if err != nil {
+		slog.Error("backup: available guests", "error", err)
+		http.Error(w, "Erreur lors de la récupération des machines", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(guests)
+}
+
+// HandleBackupAddTarget enregistre manuellement une cible de sauvegarde
+// (POST /api/backups/targets, {vmid, type, name}). Admin-only, avec garde inline.
+func (h *Handler) HandleBackupAddTarget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !middleware.RequireAdmin(w, r, h.SessionStore, h.DB) {
+		return
+	}
+	var body struct {
+		VMID int    `json:"vmid"`
+		Type string `json:"type"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Corps de requête invalide", http.StatusBadRequest)
+		return
+	}
+	if err := h.Backup.AddTarget(body.VMID, body.Type, body.Name); err != nil {
+		slog.Error("backup: add target", "vmid", body.VMID, "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+}

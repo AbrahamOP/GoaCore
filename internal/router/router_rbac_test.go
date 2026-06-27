@@ -301,6 +301,8 @@ var defenseInDepth = []route{
 	{http.MethodPost, "/api/backups/test"},
 	{http.MethodPost, "/api/backups/settings"},
 	{http.MethodPost, "/api/backups/target-settings"},
+	{http.MethodGet, "/api/backups/available-guests"},
+	{http.MethodPost, "/api/backups/targets"},
 
 	// SOAR config write (HandleSoarConfig re-checks inline on its POST arm).
 	{http.MethodPost, "/api/soar/config"},
