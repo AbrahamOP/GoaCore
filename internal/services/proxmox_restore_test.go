@@ -64,7 +64,7 @@ func TestBuildSandboxNetN(t *testing.T) {
 		want    string
 	}{
 		{"lxc empty fallback", "", "lxc", 99, "vmbr1", "name=eth0,bridge=vmbr1,tag=99"},
-		{"qemu empty fallback", "", "qemu", 99, "vmbr1", "virtio,bridge=vmbr1,tag=99"},
+		{"qemu empty fallback", "", "qemu", 99, "vmbr1", "virtio,bridge=vmbr1,tag=99,link_down=1"},
 		{
 			"lxc replace existing tag and bridge",
 			"name=eth0,bridge=vmbr0,ip=192.0.2.11/24,tag=20",
@@ -75,7 +75,21 @@ func TestBuildSandboxNetN(t *testing.T) {
 			"qemu add tag, keep model+mac",
 			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0",
 			"qemu", 99, "vmbr1",
-			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr1,tag=99",
+			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr1,tag=99,link_down=1",
+		},
+		{
+			// Incident 2026-06-28: un OPNsense restauré (QEMU) doit démarrer lien coupé.
+			"qemu forces link_down on every NIC",
+			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr1,tag=20,link_down=0",
+			"qemu", 99, "vmbr1",
+			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr1,tag=99,link_down=1",
+		},
+		{
+			// LXC n'a pas de link_down et pas de tagging interne → VLAN suffit.
+			"lxc never gets link_down",
+			"name=eth0,bridge=vmbr0,tag=20",
+			"lxc", 99, "vmbr1",
+			"name=eth0,bridge=vmbr1,tag=99",
 		},
 		{
 			"no bridge present gets one",
@@ -89,7 +103,7 @@ func TestBuildSandboxNetN(t *testing.T) {
 			"custom sandbox bridge rewrites prod bridge",
 			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,tag=20",
 			"qemu", 42, "vmbr9",
-			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr9,tag=42",
+			"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr9,tag=42,link_down=1",
 		},
 		{
 			// Empty bridge floors to the hard vmbr1 fallback — never bridgeless.

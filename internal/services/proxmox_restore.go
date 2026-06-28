@@ -252,15 +252,16 @@ func buildSandboxNetN(current, pveType string, vlanTag int, bridge string) strin
 		if pveType == "lxc" {
 			return fmt.Sprintf("name=eth0,bridge=%s,tag=%d", bridge, vlanTag)
 		}
-		return fmt.Sprintf("virtio,bridge=%s,tag=%d", bridge, vlanTag)
+		return fmt.Sprintf("virtio,bridge=%s,tag=%d,link_down=1", bridge, vlanTag)
 	}
 
 	// net0 is a comma-separated list of key=value pairs, except QEMU's first
 	// field which is the bare model (e.g. "virtio=AA:BB:..." or "virtio").
 	parts := strings.Split(current, ",")
-	out := make([]string, 0, len(parts)+1)
+	out := make([]string, 0, len(parts)+2)
 	hasBridge := false
 	tagSet := false
+	linkSet := false
 	for _, raw := range parts {
 		seg := strings.TrimSpace(raw)
 		if seg == "" {
@@ -274,6 +275,12 @@ func buildSandboxNetN(current, pveType string, vlanTag int, bridge string) strin
 		case "tag":
 			out = append(out, fmt.Sprintf("tag=%d", vlanTag))
 			tagSet = true
+		case "link_down":
+			// QEMU only: force the carrier OFF. LXC has no link_down → drop the field.
+			if pveType != "lxc" {
+				out = append(out, "link_down=1")
+				linkSet = true
+			}
 		case "bridge":
 			out = append(out, "bridge="+bridge)
 			hasBridge = true
@@ -286,6 +293,15 @@ func buildSandboxNetN(current, pveType string, vlanTag int, bridge string) strin
 	}
 	if !tagSet {
 		out = append(out, fmt.Sprintf("tag=%d", vlanTag))
+	}
+	// QEMU defense-in-depth: a restored firewall/router (e.g. OPNsense) tags VLANs
+	// internally and announces itself as gateway on every network; the isolation VLAN
+	// alone does NOT contain it (incident 2026-06-28: restored OPNsense lagged the
+	// whole infra). Forcing link_down=1 guarantees NO frame leaves the sandbox NIC.
+	// The N3 healthcheck runs via the guest agent (qm guest exec / pct exec), not the
+	// network, so it is unaffected. LXC guests have no internal tagging → VLAN suffices.
+	if pveType != "lxc" && !linkSet {
+		out = append(out, "link_down=1")
 	}
 	return strings.Join(out, ",")
 }
