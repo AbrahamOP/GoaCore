@@ -213,9 +213,9 @@ func TestBuildSandboxNetN_MultipleInterfaces(t *testing.T) {
 		"net2": "name=eth2,bridge=vmbr0", // no tag yet
 	}
 	want := map[string]string{
-		"net0": "virtio=AA:BB:CC:DD:EE:01,bridge=vmbr1,tag=99",
-		"net1": "virtio=AA:BB:CC:DD:EE:02,bridge=vmbr1,tag=99",
-		"net2": "name=eth2,bridge=vmbr1,tag=99",
+		"net0": "virtio=AA:BB:CC:DD:EE:01,bridge=vmbr1,tag=99,link_down=1",
+		"net1": "virtio=AA:BB:CC:DD:EE:02,bridge=vmbr1,tag=99,link_down=1",
+		"net2": "name=eth2,bridge=vmbr1,tag=99,link_down=1",
 	}
 	for key, cur := range ifaces {
 		got := buildSandboxNetN(cur, "qemu", 99, "vmbr1")
