@@ -22,7 +22,8 @@ func TestOverviewRenders(t *testing.T) {
 			RAMUsedStr: "20 Go", RAMTotalStr: "32 Go", VMsRunning: 12, VMsStopped: 3,
 			WazuhConfigured: true, WazuhActive: 15, WazuhDisconnected: 1,
 			Alerts24h: 4, Alerts24hKnown: true,
-			InfraHealth: "Dégradé",
+			InfraHealth:  "Dégradé",
+			HealthIssues: []string{"CPU à 82%", "1 agent(s) Wazuh déconnecté(s)"},
 			Favorites: []models.App{
 				{Name: "Proxmox", ExternalURL: "https://proxmox.goacloud.fr", IconURL: "data:image/png;base64,AAA", HealthStatus: "up", IsPinned: true},
 				{Name: "Wazuh", ExternalURL: "https://wazuh.goacloud.fr", HealthStatus: "down", IsPinned: true},

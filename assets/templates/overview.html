@@ -28,6 +28,11 @@
                     <p class="text-on-surface-variant text-sm">Voici l'état de votre infrastructure en un coup d'œil.</p>
                 </div>
                 <div class="flex items-center gap-3 flex-wrap">
+                    <div class="text-right hidden sm:block mr-1">
+                        <p class="text-primary text-xs font-medium uppercase tracking-widest" id="clock-date">—</p>
+                        <p class="text-2xl font-bold text-on-surface tracking-tight leading-none" id="clock-time">--:--</p>
+                    </div>
+                    {{template "report-pdf-btn"}}
                     {{template "top-actions"}}
                 </div>
             </div>
@@ -37,9 +42,14 @@
             {{if eq .InfraHealth "Critique"}}{{$hc = "#ef4444"}}{{$hl = "Attention requise — un ou plusieurs indicateurs critiques"}}{{else if eq .InfraHealth "Dégradé"}}{{$hc = "#f59e0b"}}{{$hl = "État dégradé — à surveiller"}}{{end}}
             <div class="mb-8 rounded-xl border border-outline-variant bg-surface-container px-5 py-4 flex items-center gap-4" style="border-left:4px solid {{$hc}};">
                 <span class="inline-flex w-3 h-3 rounded-full" style="background:{{$hc}};box-shadow:0 0 0 4px color-mix(in srgb, {{$hc}} 25%, transparent);"></span>
-                <div>
+                <div class="min-w-0">
                     <p class="text-sm font-semibold text-on-surface">Infrastructure : {{.InfraHealth}}</p>
                     <p class="text-sm text-on-surface-variant">{{$hl}}</p>
+                    {{if .HealthIssues}}
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        {{range .HealthIssues}}<span class="text-xs px-2.5 py-0.5 rounded-full bg-surface-container-high text-on-surface border border-outline-variant" style="border-left:2px solid {{$hc}};">{{.}}</span>{{end}}
+                    </div>
+                    {{end}}
                 </div>
             </div>
 
@@ -148,6 +158,17 @@
             var h = new Date().getHours();
             var g = h < 6 ? "Bonne nuit" : h < 12 ? "Bonjour" : h < 18 ? "Bon après-midi" : "Bonsoir";
             var el = document.getElementById("greeting"); if (el) el.textContent = g;
+        })();
+        // Live clock (date + time), moved here from the Applications page.
+        (function () {
+            function tick() {
+                var now = new Date();
+                var t = document.getElementById("clock-time");
+                var d = document.getElementById("clock-date");
+                if (t) t.textContent = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false });
+                if (d) d.textContent = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+            }
+            tick(); setInterval(tick, 1000);
         })();
         // Async backup coverage tile (kept off the initial render to avoid the live Proxmox call)
         (function () {

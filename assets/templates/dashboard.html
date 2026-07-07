@@ -97,7 +97,7 @@
             </div>
 
             <!-- KPI Strip -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
                 <div class="bg-surface-container border border-outline-variant rounded-xl p-4" style="border-left:3px solid var(--md-color-primary);">
                     <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Applications</p>
                     <p class="text-2xl font-bold text-primary mt-1">{{len .Apps}}</p>
@@ -109,10 +109,6 @@
                 <div class="bg-surface-container border border-outline-variant rounded-xl p-4" style="border-left:3px solid #ef4444;">
                     <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Hors ligne</p>
                     <p class="text-2xl font-bold text-red-400 mt-1" id="kpi-apps-down">—</p>
-                </div>
-                <div class="bg-surface-container border border-outline-variant rounded-xl p-4 flex flex-col items-center justify-center">
-                    <p class="text-primary text-xs font-medium uppercase tracking-widest mb-1" id="clock-date">—</p>
-                    <p class="text-3xl font-bold text-on-surface tracking-tight" id="clock-time">--:--</p>
                 </div>
             </div>
 
@@ -637,28 +633,7 @@
             });
             } // end if grid
 
-            // Clock Feature
-            function updateClock() {
-                const now = new Date();
-
-                // Format Time (HH:MM)
-                const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
-                const timeStr = now.toLocaleTimeString('fr-FR', timeOptions);
-
-                // Format Date (Lundi 24 Octobre)
-                const dateOptions = { weekday: 'long', day: 'numeric', month: 'long' };
-                const dateStr = now.toLocaleDateString('fr-FR', dateOptions);
-
-                // Update DOM
-                const timeEl = document.getElementById('clock-time');
-                const dateEl = document.getElementById('clock-date');
-
-                if (timeEl) timeEl.textContent = timeStr;
-                if (dateEl) dateEl.textContent = dateStr;
-            }
-
-            setInterval(updateClock, 1000);
-            updateClock(); // Initial call
+            // Clock moved to the Overview page.
 
             // ---------- Edit mode (toggle, drag-and-drop, inline-edit) ----------
             const editBtn = document.getElementById('toggle-edit-mode');
