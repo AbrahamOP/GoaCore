@@ -82,6 +82,22 @@ func main() {
 			s = strings.ReplaceAll(s, "<!--", `<\!--`)
 			return template.JS(s), nil
 		},
+		// iconSrc marks an app icon URL as safe for an <img src> context.
+		// html/template otherwise rewrites every data: URL (even data:image/png)
+		// to "#ZgotmplZ", so app logos never render. We allow ONLY raster image
+		// data: URIs and http(s); everything else — javascript:, data:text/html,
+		// AND data:image/svg+xml (an SVG can carry <script>) — is dropped to "".
+		// Defence in depth: an <img src> never executes JS, only an admin can set
+		// icon_url, and the page CSP restricts img-src to 'self' data:.
+		"iconSrc": func(s string) template.URL {
+			allowed := []string{"data:image/png", "data:image/jpeg", "data:image/gif", "data:image/webp", "https://", "http://"}
+			for _, p := range allowed {
+				if strings.HasPrefix(s, p) {
+					return template.URL(s)
+				}
+			}
+			return ""
+		},
 	}
 	tmpl := template.New("").Funcs(funcMap)
 	if _, statErr := os.Stat("assets/templates"); statErr == nil {

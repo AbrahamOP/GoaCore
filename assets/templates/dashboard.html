@@ -151,7 +151,7 @@
                         {{if .IconURL}}
                         <div
                             class="w-12 h-12 rounded-lg bg-surface-container-high p-2 flex items-center justify-center border border-outline-variant group-hover:border-primary/30 transition-colors">
-                            <img src="{{.IconURL}}" alt="{{.Name}}" class="w-full h-full object-contain">
+                            <img src="{{iconSrc .IconURL}}" alt="{{.Name}}" class="w-full h-full object-contain">
                         </div>
                         {{else}}
                         <div
