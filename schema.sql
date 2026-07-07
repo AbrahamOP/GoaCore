@@ -50,5 +50,16 @@ CREATE TABLE IF NOT EXISTS soar_config (
     alert_packages BOOLEAN DEFAULT TRUE
 );
 
-INSERT IGNORE INTO soar_config (id, alert_status, alert_ssh, alert_sudo, alert_fim, alert_packages) 
+INSERT IGNORE INTO soar_config (id, alert_status, alert_ssh, alert_sudo, alert_fim, alert_packages)
 VALUES (1, TRUE, TRUE, TRUE, TRUE, TRUE);
+
+CREATE TABLE IF NOT EXISTS soar_state (
+    k VARCHAR(64) PRIMARY KEY,
+    v TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS soar_alert_dedup (
+    alert_key VARCHAR(191) PRIMARY KEY,
+    seen_at BIGINT NOT NULL,
+    INDEX idx_seen_at (seen_at)
+);

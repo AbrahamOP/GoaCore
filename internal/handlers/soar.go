@@ -103,7 +103,7 @@ func (h *Handler) HandleDiscordTest(w http.ResponseWriter, r *http.Request) {
 		RuleID:      "5716",
 		RuleLevel:   5,
 	}
-	h.sendEnrichedDiscordAlert(ctx, "info")
+	h.sendEnrichedDiscordAlert(r.Context(), ctx, "info")
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Notification sent"))
@@ -161,7 +161,7 @@ func (h *Handler) HandleAITest(w http.ResponseWriter, r *http.Request) {
 // through as params, pushing worker-specific concurrency rules out of the worker for marginal
 // dedup (only the trailing SendAlert + "🤖 Analyse AI" formatting is truly shared). Per the
 // vague-1 guardrail ("si la factorisation est risquée, ne pas la forcer"), they stay separate.
-func (h *Handler) sendEnrichedDiscordAlert(alertCtx services.AIAlertContext, severity string) {
+func (h *Handler) sendEnrichedDiscordAlert(reqCtx context.Context, alertCtx services.AIAlertContext, severity string) {
 	// Read the live Discord bot and AI client from the registry at emit time, so an
 	// in-app hot-reload of either is picked up without restart (both nil-guarded).
 	discord := h.Registry.Discord()
@@ -171,18 +171,29 @@ func (h *Handler) sendEnrichedDiscordAlert(alertCtx services.AIAlertContext, sev
 
 	msg := alertCtx.Description
 
-	if ai := h.Registry.AI(); ai != nil {
-		aiCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		analysis, err := ai.EnrichAlert(aiCtx, alertCtx)
-		cancel()
-		if err == nil {
-			msg += fmt.Sprintf("\n\n🤖 **Analyse AI:**\n%s", analysis)
-		} else {
-			slog.Error("AI Enrichment Failed", "error", err)
-		}
+	// Post first, enrich after: même contrat que le worker (l'alerte part tout
+	// de suite, l'analyse IA arrive par édition du message), sans le sémaphore
+	// pour les raisons documentées ci-dessus.
+	messageID, err := discord.SendSoarAlert(alertCtx.Title, msg, severity)
+	if err != nil {
+		slog.Error("Discord SOAR alert failed", "error", err)
+		return
 	}
 
-	discord.SendAlert(alertCtx.Title, msg, severity)
+	if ai := h.Registry.AI(); ai != nil {
+		// Borné par le contexte de la requête admin (le serveur coupe à
+		// WriteTimeout=60s de toute façon) : si l'admin ferme, on annule.
+		aiCtx, cancel := context.WithTimeout(reqCtx, 120*time.Second)
+		analysis, err := ai.EnrichAlert(aiCtx, alertCtx)
+		cancel()
+		if err != nil {
+			slog.Error("AI Enrichment Failed", "error", err)
+			return
+		}
+		if err := discord.EditSoarAlertAnalysis(messageID, alertCtx.Title, msg, severity, analysis); err != nil {
+			slog.Error("Discord SOAR alert enrichment edit failed", "error", err, "message_id", messageID)
+		}
+	}
 }
 
 func (h *Handler) saveSoarConfig() error {
