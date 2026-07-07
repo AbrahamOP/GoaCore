@@ -53,7 +53,9 @@ func New(h *handlers.Handler, store *sessions.CookieStore, db *sql.DB, cookieSec
 			return appMiddleware.OnboardingGate(h.ConfigStore.ProxmoxConfigured, next)
 		})
 
-		r.Get("/", h.HandleDashboard)
+		r.Get("/", h.HandleOverview)
+		r.Get("/applications", h.HandleDashboard)
+		r.Get("/api/overview/backups", h.HandleOverviewBackups)
 		r.Get("/report", h.HandleReport)
 		r.Get("/add", h.HandleAddApp)
 		r.Post("/add", h.HandleAddApp)
