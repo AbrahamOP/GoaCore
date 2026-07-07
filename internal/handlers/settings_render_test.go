@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"encoding/json"
 	"html/template"
 	"strings"
 	"testing"
@@ -18,18 +17,7 @@ import (
 // the one guard that catches a 500-on-render regression in any settings section.
 func loadSettingsTemplates(t *testing.T) *template.Template {
 	t.Helper()
-	funcMap := template.FuncMap{
-		"json": func(v interface{}) (template.JS, error) {
-			a, err := json.Marshal(v)
-			if err != nil {
-				return "", err
-			}
-			s := strings.ReplaceAll(string(a), "</", `<\/`)
-			s = strings.ReplaceAll(s, "<!--", `<\!--`)
-			return template.JS(s), nil
-		},
-	}
-	tmpl, err := template.New("").Funcs(funcMap).ParseGlob("../../assets/templates/*.html")
+	tmpl, err := template.New("").Funcs(TemplateFuncMap()).ParseGlob("../../assets/templates/*.html")
 	if err != nil {
 		t.Fatalf("parsing templates failed: %v", err)
 	}

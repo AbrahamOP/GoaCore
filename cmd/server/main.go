@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -71,19 +69,7 @@ func main() {
 	database.Migrate(db)
 
 	// Templates
-	funcMap := template.FuncMap{
-		"json": func(v interface{}) (template.JS, error) {
-			a, err := json.Marshal(v)
-			if err != nil {
-				return "", err
-			}
-			// Escape </script> and <!-- to prevent injection in <script> blocks
-			s := strings.ReplaceAll(string(a), "</", `<\/`)
-			s = strings.ReplaceAll(s, "<!--", `<\!--`)
-			return template.JS(s), nil
-		},
-	}
-	tmpl := template.New("").Funcs(funcMap)
+	tmpl := template.New("").Funcs(handlers.TemplateFuncMap())
 	if _, statErr := os.Stat("assets/templates"); statErr == nil {
 		slog.Info("Loading templates from disk (Development Mode)")
 		tmpl, err = tmpl.ParseGlob("assets/templates/*.html")
