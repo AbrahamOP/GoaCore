@@ -2,9 +2,7 @@ services:
   app:
     build: .
     container_name: goacloud_app_dev
-    # DNS interne (Unbound) pour la résolution split-horizon des *.goacloud.fr — cf. compose prod.
-    dns:
-      - 192.168.20.1
+    dns: ${GOACORE_HEALTHCHECK_DNS:-}
     ports:
       - "8444:8443"
       - "8083:8080"

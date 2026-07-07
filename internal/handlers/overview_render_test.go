@@ -25,8 +25,8 @@ func TestOverviewRenders(t *testing.T) {
 			InfraHealth:  "Dégradé",
 			HealthIssues: []string{"CPU à 82%", "1 agent(s) Wazuh déconnecté(s)"},
 			Favorites: []models.App{
-				{Name: "Proxmox", ExternalURL: "https://proxmox.goacloud.fr", IconURL: "data:image/png;base64,AAA", HealthStatus: "up", IsPinned: true},
-				{Name: "Wazuh", ExternalURL: "https://wazuh.goacloud.fr", HealthStatus: "down", IsPinned: true},
+				{Name: "Proxmox", ExternalURL: "https://proxmox.example.test", IconURL: "data:image/png;base64,AAA", HealthStatus: "up", IsPinned: true},
+				{Name: "Wazuh", ExternalURL: "https://wazuh.example.test", HealthStatus: "down", IsPinned: true},
 			},
 		},
 		"unconfigured": {

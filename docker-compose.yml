@@ -21,12 +21,11 @@ services:
     # the ENTIRE webhook redeploy (the prod symptom: container never swapped).
     # Build-only => `compose pull` skips this service, Portainer rebuilds + recreates.
     container_name: goacloud_app
-    # DNS interne (Unbound OPNsense sur la gateway du VLAN Services) : indispensable
-    # pour que le health-check résolve les *.goacloud.fr en split-horizon (le resolver
-    # par défaut de l'hôte ne connaît pas les overrides → apps vues "down" à tort).
-    # Docker garde 127.0.0.11 pour résoudre le service "db" ; seul l'externe est forwardé ici.
-    dns:
-      - 192.168.20.1
+    # DNS optionnel : laissez vide pour le comportement Docker par défaut. Si le
+    # health-check affiche vos services "hors ligne" à tort (résolution DNS
+    # split-horizon de domaines internes), renseignez GOACORE_HEALTHCHECK_DNS
+    # dans votre .env avec l'IP de votre resolver interne.
+    dns: ${GOACORE_HEALTHCHECK_DNS:-}
     ports:
       # HTTPS de l'interface (point d'entrée principal). HTTP interne sur 8080, non expose sur l hote (pas de HTTP en clair + evite les collisions de port). A decommenter si besoin.
       - "8443:8443"
