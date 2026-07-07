@@ -10,11 +10,13 @@ import (
 
 // neutralizeDiscord defuses user-controlled text before it is embedded in a
 // Discord message. It strips backticks (which would break out of code spans /
-// fences) and disarms mentions (@everyone, @here, <@id>, <@&role>) by inserting a
-// zero-width space after each "@", so the client no longer parses them as pings.
+// fences), disarms mentions (@everyone, @here, <@id>, <@&role>) by inserting a
+// zero-width space after each "@", and breaks markdown links ("](" → "]​(")
+// so untrusted Wazuh/LLM text cannot inject a clickable phishing link.
 func neutralizeDiscord(s string) string {
 	s = strings.ReplaceAll(s, "`", "")
 	s = strings.ReplaceAll(s, "@", "@​")
+	s = strings.ReplaceAll(s, "](", "]​(")
 	return s
 }
 

@@ -81,7 +81,7 @@ func StartSoarWorker(
 			// proceed with the current snapshot rather than skipping the tick.
 			_ = loadSoarConfig(db, soarConfig)
 			// Snapshot ALL hot-reloadable clients (incl. Discord) for this tick.
-			checkSoarEvents(db, registry.Wazuh(), registry.Indexer(), registry.AI(), registry.Discord(), soarConfig, agentStatus, alertDedup, &lastAlertPoll)
+			checkSoarEvents(ctx, db, registry.Wazuh(), registry.Indexer(), registry.AI(), registry.Discord(), soarConfig, agentStatus, alertDedup, &lastAlertPoll)
 		}
 	}
 }
@@ -132,7 +132,11 @@ func StartAlertDedupCleaner(ctx context.Context, db *sql.DB, alertDedup *sync.Ma
 }
 
 // loadSoarState reads one key from the soar_state KV table ("" if absent).
+// db may be nil in tests → same "" fallback as an absent key.
 func loadSoarState(db *sql.DB, key string) (string, error) {
+	if db == nil {
+		return "", nil
+	}
 	var v string
 	err := db.QueryRow("SELECT v FROM soar_state WHERE k = ?", key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -141,8 +145,11 @@ func loadSoarState(db *sql.DB, key string) (string, error) {
 	return v, err
 }
 
-// saveSoarState upserts one key into the soar_state KV table.
+// saveSoarState upserts one key into the soar_state KV table (no-op if db is nil).
 func saveSoarState(db *sql.DB, key, value string) error {
+	if db == nil {
+		return nil
+	}
 	_, err := db.Exec(
 		"INSERT INTO soar_state (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)",
 		key, value)
@@ -154,6 +161,9 @@ func saveSoarState(db *sql.DB, key, value string) error {
 // number of entries loaded; errors are logged, not fatal (worst case: a few
 // duplicate Discord posts right after a restart, the pre-existing behaviour).
 func loadAlertDedup(db *sql.DB, alertDedup *sync.Map) int {
+	if db == nil {
+		return 0
+	}
 	rows, err := db.Query(
 		"SELECT alert_key, seen_at FROM soar_alert_dedup WHERE seen_at >= ?",
 		time.Now().Add(-2*time.Hour).Unix())
@@ -244,6 +254,7 @@ func loadSoarConfig(db *sql.DB, state *models.SoarConfigState) error {
 }
 
 func checkSoarEvents(
+	ctx context.Context,
 	db *sql.DB,
 	wazuhClient *services.WazuhClient,
 	wazuhIndexer *services.WazuhIndexerClient,
@@ -277,24 +288,34 @@ func checkSoarEvents(
 					if prevStatus != agent.Status {
 						slog.Info("SOAR State Change", "agent", agent.Name, "from", prevStatus, "to", agent.Status)
 
+						// Sur échec du post Discord, restaurer le statut précédent :
+						// la transition sera re-détectée (et re-alertée) au tick
+						// suivant tant que l'état diverge — un "Agent Perdu" ne doit
+						// pas être avalé par un hoquet Discord.
+						agentID, prev := agent.ID, prevStatus
+						retryOnFail := func(sent bool) {
+							if !sent {
+								agentStatus.Store(agentID, prev)
+							}
+						}
 						if agent.Status == "disconnected" {
-							ctx := services.AIAlertContext{
+							alertInfo := services.AIAlertContext{
 								Title:       "🔴 Agent Perdu",
 								Description: fmt.Sprintf("L'agent **%s** ne répond plus.", agent.Name),
 								AgentName:   agent.Name,
 								AgentIP:     agent.IP,
 								RuleLevel:   10,
 							}
-							go sendEnrichedAlert(ctx, "critical", aiClient, discord)
+							go sendEnrichedAlert(ctx, alertInfo, "critical", aiClient, discord, retryOnFail)
 						} else if agent.Status == "active" && prevStatus == "disconnected" {
-							ctx := services.AIAlertContext{
+							alertInfo := services.AIAlertContext{
 								Title:       "🟢 Agent Retrouvé",
 								Description: fmt.Sprintf("L'agent **%s** est de nouveau en ligne.", agent.Name),
 								AgentName:   agent.Name,
 								AgentIP:     agent.IP,
 								RuleLevel:   0,
 							}
-							go sendEnrichedAlert(ctx, "info", aiClient, discord)
+							go sendEnrichedAlert(ctx, alertInfo, "info", aiClient, discord, retryOnFail)
 						}
 					}
 				}
@@ -325,10 +346,14 @@ func checkSoarEvents(
 				slog.Error("SOAR state persistence failed", "error", serr)
 			}
 			for _, alert := range alerts {
-				alertKey := alert.Agent.ID + alert.Rule.ID + alert.Timestamp
+				alertKey := alert.Agent.ID + ":" + alert.Rule.ID + ":" + alert.Timestamp
 				if _, loaded := alertDedup.Load(alertKey); !loaded {
+					// Store mémoire tout de suite (empêche un double fan-out dans le
+					// même process) mais persistance DB seulement APRÈS un post
+					// Discord réussi (voir onSent) : un échec d'envoi rend la clé au
+					// pool pour que le tick suivant retente — at-least-once, une
+					// alerte de sécu ne doit jamais disparaître sur un hoquet Discord.
 					alertDedup.Store(alertKey, time.Now())
-					persistAlertDedup(db, alertKey)
 
 					var title, msg, severity string
 					shouldSend := false
@@ -378,7 +403,18 @@ func checkSoarEvents(
 							FullLog:     alert.FullLog,
 							SourceIP:    alert.Data.SrcIP,
 						}
-						go sendEnrichedAlert(aiCtx, severity, aiClient, discord)
+						key := alertKey
+						go sendEnrichedAlert(ctx, aiCtx, severity, aiClient, discord, func(sent bool) {
+							if sent {
+								persistAlertDedup(db, key)
+							} else {
+								alertDedup.Delete(key)
+							}
+						})
+					} else {
+						// Catégorie désactivée : on persiste quand même pour ne pas
+						// retraiter la même alerte à chaque tick de la fenêtre.
+						persistAlertDedup(db, alertKey)
 					}
 				}
 			}
@@ -390,8 +426,18 @@ func checkSoarEvents(
 // IMMEDIATELY (notification latency never depends on the LLM), then the same
 // message is edited in place once the AI analysis is available. An enrichment
 // failure therefore degrades to "alerte brute déjà livrée", never to silence.
-func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClient services.AIClient, discord *services.DiscordBot) {
+//
+// onSent (nil accepté) est rappelé avec le résultat du POST initial : c'est le
+// point d'ancrage at-least-once du caller (persister le dedup sur succès,
+// rendre la clé / restaurer l'état sur échec pour retenter au tick suivant).
+// parentCtx borne l'enrichissement : à l'arrêt du worker, l'appel Ollama en
+// vol est annulé au lieu de survivre au process.
+func sendEnrichedAlert(parentCtx context.Context, alertCtx services.AIAlertContext, severity string, aiClient services.AIClient, discord *services.DiscordBot, onSent func(sent bool)) {
+	if onSent == nil {
+		onSent = func(bool) {}
+	}
 	if discord == nil || !discord.IsReady() {
+		onSent(false)
 		return
 	}
 
@@ -401,8 +447,10 @@ func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClie
 	messageID, err := discord.SendSoarAlert(alertCtx.Title, msg, severity)
 	if err != nil {
 		slog.Error("Discord SOAR alert failed", "error", err)
+		onSent(false)
 		return
 	}
+	onSent(true)
 
 	if aiClient == nil {
 		return
@@ -431,7 +479,7 @@ func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClie
 		}()
 		aiEnrichSem <- struct{}{}
 		defer func() { <-aiEnrichSem }()
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, 120*time.Second)
 		defer cancel()
 		analysis, err = aiClient.EnrichAlert(ctx, alertCtx)
 	}()
