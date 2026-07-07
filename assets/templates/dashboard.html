@@ -85,10 +85,8 @@
             <!-- Header -->
             <div class="flex flex-wrap items-start justify-between gap-4 mb-10">
                 <div>
-                    <h2 class="text-3xl font-bold text-on-surface mb-2"><span id="greeting"></span>, <span
-                            class="gradient-text">{{.Username}}</span>
-                    </h2>
-                    <p class="text-on-surface-variant text-sm">Ravi de vous revoir sur votre dashboard.</p>
+                    <h2 class="text-3xl font-bold text-on-surface mb-2">Applications</h2>
+                    <p class="text-on-surface-variant text-sm">Toutes vos applications, en un clic.</p>
                 </div>
                 <div class="flex items-center gap-3 flex-wrap">
                     {{template "report-pdf-btn"}}
@@ -567,16 +565,6 @@
                 });
             })();
 
-            // Dynamic Greeting
-            const hour = new Date().getHours();
-            const greeting = document.getElementById('greeting');
-            if (greeting) {
-                if (hour >= 18 || hour < 5) {
-                    greeting.textContent = 'Bonsoir';
-                } else {
-                    greeting.textContent = 'Bonjour';
-                }
-            }
 
             // App health KPI counters
             (function updateAppKPIs() {
