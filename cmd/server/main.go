@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -71,35 +69,7 @@ func main() {
 	database.Migrate(db)
 
 	// Templates
-	funcMap := template.FuncMap{
-		"json": func(v interface{}) (template.JS, error) {
-			a, err := json.Marshal(v)
-			if err != nil {
-				return "", err
-			}
-			// Escape </script> and <!-- to prevent injection in <script> blocks
-			s := strings.ReplaceAll(string(a), "</", `<\/`)
-			s = strings.ReplaceAll(s, "<!--", `<\!--`)
-			return template.JS(s), nil
-		},
-		// iconSrc marks an app icon URL as safe for an <img src> context.
-		// html/template otherwise rewrites every data: URL (even data:image/png)
-		// to "#ZgotmplZ", so app logos never render. We allow ONLY raster image
-		// data: URIs and http(s); everything else — javascript:, data:text/html,
-		// AND data:image/svg+xml (an SVG can carry <script>) — is dropped to "".
-		// Defence in depth: an <img src> never executes JS, only an admin can set
-		// icon_url, and the page CSP restricts img-src to 'self' data:.
-		"iconSrc": func(s string) template.URL {
-			allowed := []string{"data:image/png", "data:image/jpeg", "data:image/gif", "data:image/webp", "https://", "http://"}
-			for _, p := range allowed {
-				if strings.HasPrefix(s, p) {
-					return template.URL(s)
-				}
-			}
-			return ""
-		},
-	}
-	tmpl := template.New("").Funcs(funcMap)
+	tmpl := template.New("").Funcs(handlers.TemplateFuncMap())
 	if _, statErr := os.Stat("assets/templates"); statErr == nil {
 		slog.Info("Loading templates from disk (Development Mode)")
 		tmpl, err = tmpl.ParseGlob("assets/templates/*.html")
