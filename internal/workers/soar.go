@@ -47,12 +47,26 @@ func StartSoarWorker(
 		}
 	}
 
+	// Rehydrate the dedup set from the DB so a restart does not re-post alerts
+	// already sent: the in-memory map alone resets on restart while the lookback
+	// window re-reads up to maxAlertLookback of history (the known "alertes
+	// rejouées après restart" issue).
+	if n := loadAlertDedup(db, alertDedup); n > 0 {
+		slog.Info("SOAR Init: Rehydrated alert dedup", "entries", n)
+	}
+
 	// Start dedup cleaner
-	go StartAlertDedupCleaner(ctx, alertDedup)
+	go StartAlertDedupCleaner(ctx, db, alertDedup)
 
 	// Track the last successful indexer poll so the lookback window can absorb
-	// transient outages instead of silently dropping alerts that occurred in the gap.
+	// transient outages instead of silently dropping alerts that occurred in the
+	// gap. Persisted in soar_state across restarts for the same anti-replay reason.
 	lastAlertPoll := time.Now().Add(-2 * time.Minute)
+	if v, err := loadSoarState(db, "last_alert_poll"); err == nil && v != "" {
+		if t, perr := time.Parse(time.RFC3339, v); perr == nil {
+			lastAlertPoll = t
+		}
+	}
 
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -67,7 +81,7 @@ func StartSoarWorker(
 			// proceed with the current snapshot rather than skipping the tick.
 			_ = loadSoarConfig(db, soarConfig)
 			// Snapshot ALL hot-reloadable clients (incl. Discord) for this tick.
-			checkSoarEvents(registry.Wazuh(), registry.Indexer(), registry.AI(), registry.Discord(), soarConfig, agentStatus, alertDedup, &lastAlertPoll)
+			checkSoarEvents(db, registry.Wazuh(), registry.Indexer(), registry.AI(), registry.Discord(), soarConfig, agentStatus, alertDedup, &lastAlertPoll)
 		}
 	}
 }
@@ -90,8 +104,10 @@ const maxConcurrentEnrichments = 1
 // enrichments across every async sendEnrichedAlert goroutine.
 var aiEnrichSem = make(chan struct{}, maxConcurrentEnrichments)
 
-// StartAlertDedupCleaner periodically removes old alert dedup entries to prevent memory leaks.
-func StartAlertDedupCleaner(ctx context.Context, alertDedup *sync.Map) {
+// StartAlertDedupCleaner periodically removes old alert dedup entries (memory
+// map + soar_alert_dedup table) to prevent unbounded growth. db may be nil in
+// tests; the DB sweep is then skipped.
+func StartAlertDedupCleaner(ctx context.Context, db *sql.DB, alertDedup *sync.Map) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 	for {
@@ -106,7 +122,70 @@ func StartAlertDedupCleaner(ctx context.Context, alertDedup *sync.Map) {
 				}
 				return true
 			})
+			if db != nil {
+				if _, err := db.Exec("DELETE FROM soar_alert_dedup WHERE seen_at < ?", cutoff.Unix()); err != nil {
+					slog.Error("SOAR dedup DB cleanup failed", "error", err)
+				}
+			}
 		}
+	}
+}
+
+// loadSoarState reads one key from the soar_state KV table ("" if absent).
+func loadSoarState(db *sql.DB, key string) (string, error) {
+	var v string
+	err := db.QueryRow("SELECT v FROM soar_state WHERE k = ?", key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// saveSoarState upserts one key into the soar_state KV table.
+func saveSoarState(db *sql.DB, key, value string) error {
+	_, err := db.Exec(
+		"INSERT INTO soar_state (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)",
+		key, value)
+	return err
+}
+
+// loadAlertDedup rehydrates the in-memory dedup map from soar_alert_dedup
+// (entries of the last 2h only — same horizon as the cleaner). Returns the
+// number of entries loaded; errors are logged, not fatal (worst case: a few
+// duplicate Discord posts right after a restart, the pre-existing behaviour).
+func loadAlertDedup(db *sql.DB, alertDedup *sync.Map) int {
+	rows, err := db.Query(
+		"SELECT alert_key, seen_at FROM soar_alert_dedup WHERE seen_at >= ?",
+		time.Now().Add(-2*time.Hour).Unix())
+	if err != nil {
+		slog.Error("SOAR dedup rehydration failed", "error", err)
+		return 0
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var key string
+		var seenAt int64
+		if err := rows.Scan(&key, &seenAt); err != nil {
+			continue
+		}
+		alertDedup.Store(key, time.Unix(seenAt, 0))
+		n++
+	}
+	return n
+}
+
+// persistAlertDedup records one posted alert key in soar_alert_dedup so it
+// survives restarts. Best effort: on error the in-memory map still dedups
+// within the current process lifetime.
+func persistAlertDedup(db *sql.DB, key string) {
+	if db == nil {
+		return
+	}
+	if _, err := db.Exec(
+		"INSERT IGNORE INTO soar_alert_dedup (alert_key, seen_at) VALUES (?, ?)",
+		key, time.Now().Unix()); err != nil {
+		slog.Error("SOAR dedup persistence failed", "error", err)
 	}
 }
 
@@ -165,6 +244,7 @@ func loadSoarConfig(db *sql.DB, state *models.SoarConfigState) error {
 }
 
 func checkSoarEvents(
+	db *sql.DB,
 	wazuhClient *services.WazuhClient,
 	wazuhIndexer *services.WazuhIndexerClient,
 	aiClient services.AIClient,
@@ -239,10 +319,16 @@ func checkSoarEvents(
 			slog.Error("SOAR Worker Error (Indexer)", "error", err)
 		} else {
 			*lastAlertPoll = pollStart
+			// Persist the cursor so a restart resumes where this poll ended
+			// instead of re-reading (and re-posting) the lookback window.
+			if serr := saveSoarState(db, "last_alert_poll", pollStart.Format(time.RFC3339)); serr != nil {
+				slog.Error("SOAR state persistence failed", "error", serr)
+			}
 			for _, alert := range alerts {
 				alertKey := alert.Agent.ID + alert.Rule.ID + alert.Timestamp
 				if _, loaded := alertDedup.Load(alertKey); !loaded {
 					alertDedup.Store(alertKey, time.Now())
+					persistAlertDedup(db, alertKey)
 
 					var title, msg, severity string
 					shouldSend := false
@@ -300,6 +386,10 @@ func checkSoarEvents(
 	}
 }
 
+// sendEnrichedAlert notifies Discord in two steps: the raw alert is posted
+// IMMEDIATELY (notification latency never depends on the LLM), then the same
+// message is edited in place once the AI analysis is available. An enrichment
+// failure therefore degrades to "alerte brute déjà livrée", never to silence.
 func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClient services.AIClient, discord *services.DiscordBot) {
 	if discord == nil || !discord.IsReady() {
 		return
@@ -307,39 +397,55 @@ func sendEnrichedAlert(alertCtx services.AIAlertContext, severity string, aiClie
 
 	msg := alertCtx.Description
 
-	if aiClient != nil {
-		// Gate the heavy Ollama call through the shared semaphore so a burst of
-		// alerts never opens more than maxConcurrentEnrichments 120s calls at once.
-		// Acquire blocks (rather than dropping) so every alert is still enriched in
-		// turn; the waiting goroutine is cheap (it just parks on the channel).
-		//
-		// The acquire/release + EnrichAlert run inside a closure so the slot is freed
-		// via defer even on panic. Without this, a single panic with
-		// maxConcurrentEnrichments=1 would leak the only slot forever, deadlocking
-		// every future enrichment on `aiEnrichSem <- struct{}{}` (the known "SOAR
-		// s'arrete definitivement a la 1ere erreur" class of failure). recover() also
-		// keeps a panic from tearing down the whole GoaCore process, since
-		// sendEnrichedAlert runs in a detached goroutine.
-		var analysis string
-		var err error
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					err = fmt.Errorf("panic during AI enrichment: %v", r)
-				}
-			}()
-			aiEnrichSem <- struct{}{}
-			defer func() { <-aiEnrichSem }()
-			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-			defer cancel()
-			analysis, err = aiClient.EnrichAlert(ctx, alertCtx)
-		}()
-		if err == nil {
-			msg += fmt.Sprintf("\n\n🤖 **Analyse AI:**\n%s", analysis)
-		} else {
-			slog.Error("AI Enrichment Failed", "error", err)
-		}
+	// 1. Post first — the alert reaches the user within the tick, enriched or not.
+	messageID, err := discord.SendSoarAlert(alertCtx.Title, msg, severity)
+	if err != nil {
+		slog.Error("Discord SOAR alert failed", "error", err)
+		return
 	}
 
-	discord.SendAlert(alertCtx.Title, msg, severity)
+	if aiClient == nil {
+		return
+	}
+
+	// 2. Enrich asynchronously, then edit the already-posted message.
+	//
+	// Gate the heavy Ollama call through the shared semaphore so a burst of
+	// alerts never opens more than maxConcurrentEnrichments 120s calls at once.
+	// Acquire blocks (rather than dropping) so every alert is still enriched in
+	// turn; the waiting goroutine is cheap (it just parks on the channel).
+	//
+	// The acquire/release + EnrichAlert run inside a closure so the slot is freed
+	// via defer even on panic. Without this, a single panic with
+	// maxConcurrentEnrichments=1 would leak the only slot forever, deadlocking
+	// every future enrichment on `aiEnrichSem <- struct{}{}` (the known "SOAR
+	// s'arrete definitivement a la 1ere erreur" class of failure). recover() also
+	// keeps a panic from tearing down the whole GoaCore process, since
+	// sendEnrichedAlert runs in a detached goroutine.
+	var analysis string
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during AI enrichment: %v", r)
+			}
+		}()
+		aiEnrichSem <- struct{}{}
+		defer func() { <-aiEnrichSem }()
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		analysis, err = aiClient.EnrichAlert(ctx, alertCtx)
+	}()
+	if err != nil {
+		// Le message brut est déjà parti : l'échec d'enrichissement ne coûte
+		// que l'absence d'analyse, jamais l'absence de notification.
+		slog.Error("AI Enrichment Failed", "error", err)
+		return
+	}
+
+	// NB: si un hot-reload Discord intervient entre le post et l'édition, le
+	// snapshot `discord` de ce tick peut pointer sur une session fermée ;
+	// l'édition échoue alors proprement et l'alerte reste en version brute.
+	if err := discord.EditSoarAlertAnalysis(messageID, alertCtx.Title, msg, severity, analysis); err != nil {
+		slog.Error("Discord SOAR alert enrichment edit failed", "error", err, "message_id", messageID)
+	}
 }

@@ -70,36 +70,98 @@ func (d *DiscordBot) IsReady() bool {
 	return d != nil && d.session != nil
 }
 
-// SendAlert sends a formatted SOAR alert embed to the main channel.
-func (d *DiscordBot) SendAlert(title, message, severity string) error {
-	if d == nil || d.session == nil {
-		return fmt.Errorf("discord session not initialized")
+// severityColor maps a SOAR severity to the container accent color.
+func severityColor(severity string) int {
+	switch severity {
+	case "critical":
+		return 0xff0000
+	case "high":
+		return 0xffa500
+	case "medium":
+		return 0xffff00
 	}
-	// title/message proviennent de Wazuh + sortie LLM (non fiables) → neutraliser
-	// les mentions/markdown avant de les embarquer dans l'embed.
+	return 0x00ff00 // Green (Info)
+}
+
+// truncateRunes caps user/LLM-provided text so the message stays under the
+// Components V2 limit (4000 characters cumulés sur les TextDisplay).
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}
+
+// soarAlertComponents builds the Components V2 payload of a SOAR alert.
+// analysis == "" → alerte brute (post immédiat) ; non vide → version enrichie
+// (utilisée par l'édition du même message une fois l'analyse IA disponible).
+// Les entrées doivent déjà être passées par neutralizeDiscord.
+func soarAlertComponents(title, message, severity, analysis string) []discordgo.MessageComponent {
+	color := severityColor(severity)
+	divider := true
+
+	inner := []discordgo.MessageComponent{
+		discordgo.TextDisplay{Content: "## 🛡️ SOAR Alert: " + truncateRunes(title, 150)},
+		discordgo.TextDisplay{Content: truncateRunes(message, 1500)},
+	}
+	if analysis != "" {
+		inner = append(inner,
+			discordgo.Separator{Divider: &divider},
+			discordgo.TextDisplay{Content: "🤖 **Analyse IA :**\n" + truncateRunes(analysis, 1800)},
+		)
+	}
+	inner = append(inner,
+		discordgo.Separator{Divider: &divider},
+		discordgo.TextDisplay{Content: "-# GoaCore Security"},
+	)
+
+	return []discordgo.MessageComponent{
+		discordgo.Container{AccentColor: &color, Components: inner},
+	}
+}
+
+// SendSoarAlert posts a SOAR alert (Components V2) to the main channel and
+// returns the Discord message ID, so the caller can enrich the SAME message
+// later via EditSoarAlertAnalysis. The alert is sent raw (no AI analysis):
+// posting first guarantees the notification latency never depends on the LLM.
+func (d *DiscordBot) SendSoarAlert(title, message, severity string) (string, error) {
+	if d == nil || d.session == nil {
+		return "", fmt.Errorf("discord session not initialized")
+	}
+	// title/message proviennent de Wazuh (non fiables) → neutraliser les
+	// mentions/markdown avant de les embarquer dans le message.
 	title = neutralizeDiscord(title)
 	message = neutralizeDiscord(message)
 
-	color := 0x00ff00 // Green (Info)
-	switch severity {
-	case "critical":
-		color = 0xff0000
-	case "high":
-		color = 0xffa500
-	case "medium":
-		color = 0xffff00
+	m, err := d.session.ChannelMessageSendComplex(d.channelID, &discordgo.MessageSend{
+		Flags:      discordgo.MessageFlagsIsComponentsV2,
+		Components: soarAlertComponents(title, message, severity, ""),
+	})
+	if err != nil {
+		return "", err
 	}
+	return m.ID, nil
+}
 
-	embed := &discordgo.MessageEmbed{
-		Title:       "🛡️ SOAR Alert: " + title,
-		Description: message,
-		Color:       color,
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GoaCore Security",
-		},
+// EditSoarAlertAnalysis rewrites a previously posted SOAR alert to append the
+// AI analysis section. title/message/severity must be the same values passed to
+// SendSoarAlert (a Components V2 edit replaces the whole components tree).
+func (d *DiscordBot) EditSoarAlertAnalysis(messageID, title, message, severity, analysis string) error {
+	if d == nil || d.session == nil {
+		return fmt.Errorf("discord session not initialized")
 	}
+	title = neutralizeDiscord(title)
+	message = neutralizeDiscord(message)
+	analysis = neutralizeDiscord(analysis)
 
-	_, err := d.session.ChannelMessageSendEmbed(d.channelID, embed)
+	components := soarAlertComponents(title, message, severity, analysis)
+	_, err := d.session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		Channel:    d.channelID,
+		ID:         messageID,
+		Flags:      discordgo.MessageFlagsIsComponentsV2,
+		Components: &components,
+	})
 	return err
 }
 

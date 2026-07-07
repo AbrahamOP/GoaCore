@@ -171,18 +171,27 @@ func (h *Handler) sendEnrichedDiscordAlert(alertCtx services.AIAlertContext, sev
 
 	msg := alertCtx.Description
 
+	// Post first, enrich after: même contrat que le worker (l'alerte part tout
+	// de suite, l'analyse IA arrive par édition du message), sans le sémaphore
+	// pour les raisons documentées ci-dessus.
+	messageID, err := discord.SendSoarAlert(alertCtx.Title, msg, severity)
+	if err != nil {
+		slog.Error("Discord SOAR alert failed", "error", err)
+		return
+	}
+
 	if ai := h.Registry.AI(); ai != nil {
 		aiCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		analysis, err := ai.EnrichAlert(aiCtx, alertCtx)
 		cancel()
-		if err == nil {
-			msg += fmt.Sprintf("\n\n🤖 **Analyse AI:**\n%s", analysis)
-		} else {
+		if err != nil {
 			slog.Error("AI Enrichment Failed", "error", err)
+			return
+		}
+		if err := discord.EditSoarAlertAnalysis(messageID, alertCtx.Title, msg, severity, analysis); err != nil {
+			slog.Error("Discord SOAR alert enrichment edit failed", "error", err, "message_id", messageID)
 		}
 	}
-
-	discord.SendAlert(alertCtx.Title, msg, severity)
 }
 
 func (h *Handler) saveSoarConfig() error {
