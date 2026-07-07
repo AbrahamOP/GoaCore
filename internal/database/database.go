@@ -90,6 +90,15 @@ func Migrate(db *sql.DB) {
 			alert_fim BOOLEAN DEFAULT TRUE,
 			alert_packages BOOLEAN DEFAULT TRUE
 		)`,
+		`CREATE TABLE IF NOT EXISTS soar_state (
+			k VARCHAR(64) PRIMARY KEY,
+			v TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS soar_alert_dedup (
+			alert_key VARCHAR(191) PRIMARY KEY,
+			seen_at BIGINT NOT NULL,
+			INDEX idx_seen_at (seen_at)
+		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INT AUTO_INCREMENT PRIMARY KEY,
 			user_id INT,
