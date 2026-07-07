@@ -148,23 +148,7 @@
                     class="app-card group relative bg-surface-container rounded-xl p-6 border border-outline-variant hover:border-primary/50 hover:shadow-md transition-all duration-300 transform hover:-translate-y-1{{if .IsPinned}} ring-1 ring-primary/30{{end}}">
                     <a href="{{.ExternalURL}}" target="_blank" class="app-card-link block">
                     <div class="flex items-start justify-between mb-4">
-                        {{if eq .Name "Wazuh"}}
-                        <div
-                            class="w-12 h-12 rounded-lg bg-surface-container-high p-2 flex items-center justify-center border border-outline-variant group-hover:border-primary/30 transition-colors">
-                            <svg class="w-8 h-8 text-primary" fill="currentColor" viewBox="0 0 24 24">
-                                <path
-                                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.18 14.09h-1.36l-1.63-6.62-1.63 6.62H10.2L7.95 6h1.71l1.55 7.06 1.63-7.06h1.39l1.63 7.06 1.55-7.06h1.71l-2.25 9.09z" />
-                            </svg>
-                        </div>
-                        {{else if eq .Name "Bot - FluxRSS"}}
-                        <div
-                            class="w-12 h-12 rounded-lg bg-surface-container-high p-2 flex items-center justify-center border border-outline-variant group-hover:border-primary/30 transition-colors">
-                            <svg class="w-8 h-8 text-orange-400" fill="currentColor" viewBox="0 0 24 24">
-                                <path
-                                    d="M6.18 15.64a2.18 2.18 0 0 1 2.18 2.18C8.36 19 7.38 20 6.18 20C5 20 4 19 4 17.82a2.18 2.18 0 0 1 2.18-2.18M4 4.44v2.83c7.03 0 12.73 5.7 12.73 12.73h2.83c0-8.59-6.97-15.56-15.56-15.56m0 5.66v2.83c3.9 0 7.07 3.17 7.07 7.07h2.83c0-5.47-4.43-9.9-9.9-9.9Z" />
-                            </svg>
-                        </div>
-                        {{else if .IconURL}}
+                        {{if .IconURL}}
                         <div
                             class="w-12 h-12 rounded-lg bg-surface-container-high p-2 flex items-center justify-center border border-outline-variant group-hover:border-primary/30 transition-colors">
                             <img src="{{.IconURL}}" alt="{{.Name}}" class="w-full h-full object-contain">
