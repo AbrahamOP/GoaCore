@@ -40,16 +40,14 @@
             <!-- Global health banner -->
             {{$hc := "#22c55e"}}{{$hl := "Tous les systèmes sont opérationnels"}}
             {{if eq .InfraHealth "Critique"}}{{$hc = "#ef4444"}}{{$hl = "Attention requise — un ou plusieurs indicateurs critiques"}}{{else if eq .InfraHealth "Dégradé"}}{{$hc = "#f59e0b"}}{{$hl = "État dégradé — à surveiller"}}{{end}}
-            <div class="mb-8 rounded-xl border border-outline-variant bg-surface-container px-5 py-4 flex items-center gap-4" style="border-left:4px solid {{$hc}};">
-                <span class="inline-flex w-3 h-3 rounded-full" style="background:{{$hc}};box-shadow:0 0 0 4px color-mix(in srgb, {{$hc}} 25%, transparent);"></span>
+            <div id="ov-banner" class="mb-8 rounded-xl border border-outline-variant bg-surface-container px-5 py-4 flex items-center gap-4" style="border-left:4px solid {{$hc}};">
+                <span id="ov-banner-dot" class="inline-flex w-3 h-3 rounded-full" style="background:{{$hc}};box-shadow:0 0 0 4px color-mix(in srgb, {{$hc}} 25%, transparent);"></span>
                 <div class="min-w-0">
-                    <p class="text-sm font-semibold text-on-surface">Infrastructure : {{.InfraHealth}}</p>
-                    <p class="text-sm text-on-surface-variant">{{$hl}}</p>
-                    {{if .HealthIssues}}
-                    <div class="flex flex-wrap gap-2 mt-2">
-                        {{range .HealthIssues}}<span class="text-xs px-2.5 py-0.5 rounded-full bg-surface-container-high text-on-surface border border-outline-variant" style="border-left:2px solid {{$hc}};">{{.}}</span>{{end}}
+                    <p class="text-sm font-semibold text-on-surface">Infrastructure : <span id="ov-health-text">{{.InfraHealth}}</span></p>
+                    <p id="ov-health-sub" class="text-sm text-on-surface-variant">{{$hl}}</p>
+                    <div id="ov-issues" class="flex flex-wrap gap-2 mt-2 {{if not .HealthIssues}}hidden{{end}}">
+                        {{range .HealthIssues}}<span class="ov-issue text-xs px-2.5 py-0.5 rounded-full bg-surface-container-high text-on-surface border border-outline-variant" style="border-left:2px solid {{$hc}};">{{.}}</span>{{end}}
                     </div>
-                    {{end}}
                 </div>
             </div>
 
@@ -57,26 +55,26 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <a href="/applications" class="bg-surface-container border border-outline-variant rounded-xl p-4 hover:border-primary/50 transition-colors" style="border-left:3px solid #22c55e;">
                     <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Services en ligne</p>
-                    <p class="text-2xl font-bold text-on-surface mt-1"><span class="text-green-400">{{.AppsUp}}</span><span class="text-on-surface-variant text-lg">/{{.AppsTotal}}</span></p>
-                    {{if gt .AppsDown 0}}<p class="text-xs text-red-400 mt-0.5">{{.AppsDown}} hors ligne</p>{{else}}<p class="text-xs text-on-surface-variant mt-0.5">aucun incident</p>{{end}}
+                    <p id="ov-svc-val" class="text-2xl font-bold text-on-surface mt-1"><span class="text-green-400">{{.AppsUp}}</span><span class="text-on-surface-variant text-lg">/{{.AppsTotal}}</span></p>
+                    <p id="ov-svc-sub" class="text-xs mt-0.5 {{if gt .AppsDown 0}}text-red-400{{else}}text-on-surface-variant{{end}}">{{if gt .AppsDown 0}}{{.AppsDown}} hors ligne{{else}}aucun incident{{end}}</p>
                 </a>
                 <a href="/proxmox" class="bg-surface-container border border-outline-variant rounded-xl p-4 hover:border-primary/50 transition-colors" style="border-left:3px solid var(--md-color-primary);">
                     <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">VMs / LXC actives</p>
                     {{if .ProxmoxConfigured}}
-                    <p class="text-2xl font-bold text-primary mt-1">{{.VMsRunning}}</p>
-                    <p class="text-xs text-on-surface-variant mt-0.5">{{.VMsStopped}} arrêtées</p>
+                    <p id="ov-vms-val" class="text-2xl font-bold text-primary mt-1">{{.VMsRunning}}</p>
+                    <p id="ov-vms-sub" class="text-xs text-on-surface-variant mt-0.5">{{.VMsStopped}} arrêtées</p>
                     {{else}}<p class="text-lg font-semibold text-on-surface-variant mt-1">—</p><p class="text-xs text-on-surface-variant mt-0.5">non configuré</p>{{end}}
                 </a>
                 <a href="/wazuh" class="bg-surface-container border border-outline-variant rounded-xl p-4 hover:border-primary/50 transition-colors" style="border-left:3px solid #38bdf8;">
                     <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Agents Wazuh</p>
                     {{if .WazuhConfigured}}
-                    <p class="text-2xl font-bold text-on-surface mt-1"><span class="text-green-400">{{.WazuhActive}}</span> actifs</p>
-                    {{if gt .WazuhDisconnected 0}}<p class="text-xs text-red-400 mt-0.5">{{.WazuhDisconnected}} déconnectés</p>{{else}}<p class="text-xs text-on-surface-variant mt-0.5">tous connectés</p>{{end}}
+                    <p id="ov-wz-val" class="text-2xl font-bold text-on-surface mt-1"><span class="text-green-400">{{.WazuhActive}}</span> actifs</p>
+                    <p id="ov-wz-sub" class="text-xs mt-0.5 {{if gt .WazuhDisconnected 0}}text-red-400{{else}}text-on-surface-variant{{end}}">{{if gt .WazuhDisconnected 0}}{{.WazuhDisconnected}} déconnectés{{else}}tous connectés{{end}}</p>
                     {{else}}<p class="text-lg font-semibold text-on-surface-variant mt-1">—</p><p class="text-xs text-on-surface-variant mt-0.5">non configuré</p>{{end}}
                 </a>
                 <a href="/soar" class="bg-surface-container border border-outline-variant rounded-xl p-4 hover:border-primary/50 transition-colors" style="border-left:3px solid #f59e0b;">
                     <p class="text-xs text-on-surface-variant uppercase tracking-widest font-semibold">Alertes 24h</p>
-                    {{if .Alerts24hKnown}}<p class="text-2xl font-bold {{if gt .Alerts24h 0}}text-amber-400{{else}}text-on-surface{{end}} mt-1">{{.Alerts24h}}</p><p class="text-xs text-on-surface-variant mt-0.5">dernières 24 heures</p>
+                    {{if .Alerts24hKnown}}<p id="ov-alerts-val" class="text-2xl font-bold {{if gt .Alerts24h 0}}text-amber-400{{else}}text-on-surface{{end}} mt-1">{{.Alerts24h}}</p><p class="text-xs text-on-surface-variant mt-0.5">dernières 24 heures</p>
                     {{else}}<p class="text-lg font-semibold text-on-surface-variant mt-1">—</p><p class="text-xs text-on-surface-variant mt-0.5">non configuré</p>{{end}}
                 </a>
             </div>
@@ -92,16 +90,16 @@
                     {{if .ProxmoxConfigured}}
                     <div class="space-y-4">
                         <div>
-                            <div class="flex justify-between text-sm mb-1"><span class="text-on-surface-variant">CPU</span><span class="font-semibold text-on-surface">{{.CPU}}%</span></div>
-                            <div class="bar-track"><div class="bar-fill" style="width:{{.CPU}}%;background:{{if ge .CPU 90}}#ef4444{{else if ge .CPU 75}}#f59e0b{{else}}#22c55e{{end}};"></div></div>
+                            <div class="flex justify-between text-sm mb-1"><span class="text-on-surface-variant">CPU</span><span class="font-semibold text-on-surface"><span id="ov-cpu-val">{{.CPU}}</span>%</span></div>
+                            <div class="bar-track"><div id="ov-cpu-bar" class="bar-fill" style="width:{{.CPU}}%;background:{{if ge .CPU 90}}#ef4444{{else if ge .CPU 75}}#f59e0b{{else}}#22c55e{{end}};"></div></div>
                         </div>
                         <div>
-                            <div class="flex justify-between text-sm mb-1"><span class="text-on-surface-variant">RAM</span><span class="font-semibold text-on-surface">{{.RAM}}% <span class="text-on-surface-variant font-normal">({{.RAMUsedStr}} / {{.RAMTotalStr}})</span></span></div>
-                            <div class="bar-track"><div class="bar-fill" style="width:{{.RAM}}%;background:{{if ge .RAM 90}}#ef4444{{else if ge .RAM 75}}#f59e0b{{else}}#22c55e{{end}};"></div></div>
+                            <div class="flex justify-between text-sm mb-1"><span class="text-on-surface-variant">RAM</span><span class="font-semibold text-on-surface"><span id="ov-ram-val">{{.RAM}}</span>% <span id="ov-ram-detail" class="text-on-surface-variant font-normal">({{.RAMUsedStr}} / {{.RAMTotalStr}})</span></span></div>
+                            <div class="bar-track"><div id="ov-ram-bar" class="bar-fill" style="width:{{.RAM}}%;background:{{if ge .RAM 90}}#ef4444{{else if ge .RAM 75}}#f59e0b{{else}}#22c55e{{end}};"></div></div>
                         </div>
                         <div>
-                            <div class="flex justify-between text-sm mb-1"><span class="text-on-surface-variant">Stockage</span><span class="font-semibold text-on-surface">{{.Storage}}%</span></div>
-                            <div class="bar-track"><div class="bar-fill" style="width:{{.Storage}}%;background:{{if ge .Storage 90}}#ef4444{{else if ge .Storage 75}}#f59e0b{{else}}#22c55e{{end}};"></div></div>
+                            <div class="flex justify-between text-sm mb-1"><span class="text-on-surface-variant">Stockage</span><span class="font-semibold text-on-surface"><span id="ov-storage-val">{{.Storage}}</span>%</span></div>
+                            <div class="bar-track"><div id="ov-storage-bar" class="bar-fill" style="width:{{.Storage}}%;background:{{if ge .Storage 90}}#ef4444{{else if ge .Storage 75}}#f59e0b{{else}}#22c55e{{end}};"></div></div>
                         </div>
                     </div>
                     {{else}}<p class="text-sm text-on-surface-variant">Proxmox n'est pas encore configuré. <a href="/parametres/services" class="text-primary hover:underline">Configurer</a></p>{{end}}
@@ -171,7 +169,7 @@
             tick(); setInterval(tick, 1000);
         })();
         // Async backup coverage tile (kept off the initial render to avoid the live Proxmox call)
-        (function () {
+        function loadBackups() {
             var box = document.getElementById("backup-tile");
             fetch("/api/overview/backups", { credentials: "same-origin" })
                 .then(function (r) { return r.json(); })
@@ -187,7 +185,65 @@
                         '<div class="bar-track"><div class="bar-fill" style="width:' + d.coverage + '%;background:' + col + '"></div></div>' + risk;
                 })
                 .catch(function () { box.innerHTML = '<p class="text-on-surface-variant">Indisponible pour le moment.</p>'; });
-        })();
+        }
+        loadBackups();
+
+        // Live refresh of the status tiles (no full page reload). Polls the same
+        // caches the page rendered from, every 60s (aligned on the fastest worker).
+        function usageColor(v) { return v >= 90 ? "#ef4444" : v >= 75 ? "#f59e0b" : "#22c55e"; }
+        function setText(id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; }
+        function setBar(id, v) { var el = document.getElementById(id); if (el) { el.style.width = v + "%"; el.style.background = usageColor(v); } }
+
+        function refreshOverview() {
+            fetch("/api/overview/data", { credentials: "same-origin" })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    // Services
+                    var svc = document.getElementById("ov-svc-val");
+                    if (svc) svc.innerHTML = '<span class="text-green-400">' + d.appsUp + '</span><span class="text-on-surface-variant text-lg">/' + d.appsTotal + '</span>';
+                    var svcSub = document.getElementById("ov-svc-sub");
+                    if (svcSub) { svcSub.textContent = d.appsDown > 0 ? d.appsDown + " hors ligne" : "aucun incident"; svcSub.className = "text-xs mt-0.5 " + (d.appsDown > 0 ? "text-red-400" : "text-on-surface-variant"); }
+                    // VMs
+                    if (d.proxmoxConfigured) {
+                        setText("ov-vms-val", d.vmsRunning);
+                        setText("ov-vms-sub", d.vmsStopped + " arrêtées");
+                        setText("ov-cpu-val", d.cpu); setBar("ov-cpu-bar", d.cpu);
+                        setText("ov-ram-val", d.ram); setBar("ov-ram-bar", d.ram);
+                        setText("ov-ram-detail", "(" + d.ramUsedStr + " / " + d.ramTotalStr + ")");
+                        setText("ov-storage-val", d.storage); setBar("ov-storage-bar", d.storage);
+                    }
+                    // Wazuh
+                    if (d.wazuhConfigured) {
+                        var wz = document.getElementById("ov-wz-val");
+                        if (wz) wz.innerHTML = '<span class="text-green-400">' + d.wazuhActive + '</span> actifs';
+                        var wzSub = document.getElementById("ov-wz-sub");
+                        if (wzSub) { wzSub.textContent = d.wazuhDisconnected > 0 ? d.wazuhDisconnected + " déconnectés" : "tous connectés"; wzSub.className = "text-xs mt-0.5 " + (d.wazuhDisconnected > 0 ? "text-red-400" : "text-on-surface-variant"); }
+                    }
+                    // Alerts
+                    if (d.alerts24hKnown) {
+                        var al = document.getElementById("ov-alerts-val");
+                        if (al) { al.textContent = d.alerts24h; al.className = "text-2xl font-bold mt-1 " + (d.alerts24h > 0 ? "text-amber-400" : "text-on-surface"); }
+                    }
+                    // Global health banner
+                    var hc = d.health === "Critique" ? "#ef4444" : d.health === "Dégradé" ? "#f59e0b" : "#22c55e";
+                    var hl = d.health === "Critique" ? "Attention requise — un ou plusieurs indicateurs critiques" : d.health === "Dégradé" ? "État dégradé — à surveiller" : "Tous les systèmes sont opérationnels";
+                    var banner = document.getElementById("ov-banner"); if (banner) banner.style.borderLeftColor = hc;
+                    var dot = document.getElementById("ov-banner-dot"); if (dot) { dot.style.background = hc; dot.style.boxShadow = "0 0 0 4px color-mix(in srgb, " + hc + " 25%, transparent)"; }
+                    setText("ov-health-text", d.health);
+                    setText("ov-health-sub", hl);
+                    var iss = document.getElementById("ov-issues");
+                    if (iss) {
+                        if (d.issues && d.issues.length) {
+                            iss.classList.remove("hidden");
+                            iss.innerHTML = d.issues.map(function (t) {
+                                return '<span class="ov-issue text-xs px-2.5 py-0.5 rounded-full bg-surface-container-high text-on-surface border border-outline-variant" style="border-left:2px solid ' + hc + '">' + t + '</span>';
+                            }).join("");
+                        } else { iss.classList.add("hidden"); iss.innerHTML = ""; }
+                    }
+                })
+                .catch(function () { /* transient error: keep last values */ });
+        }
+        setInterval(refreshOverview, 60000);
     </script>
     {{template "sidebar-js"}}
 </body>

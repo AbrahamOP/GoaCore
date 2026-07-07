@@ -41,7 +41,7 @@ func TestOverviewRenders(t *testing.T) {
 				t.Fatalf("overview render (%s) failed: %v", name, err)
 			}
 			out := buf.String()
-			if !strings.Contains(out, "Infrastructure : "+data.InfraHealth) {
+			if !strings.Contains(out, `id="ov-health-text">`+data.InfraHealth) {
 				t.Errorf("%s: health banner missing", name)
 			}
 		})

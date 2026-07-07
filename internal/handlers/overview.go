@@ -51,7 +51,10 @@ type OverviewData struct {
 	HealthIssues []string
 }
 
-func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
+// computeOverview builds the overview model from the in-memory caches + DB. It
+// is shared by the HTML page (HandleOverview) and the live JSON refresh
+// (HandleOverviewData), so both always report identical numbers.
+func (h *Handler) computeOverview(r *http.Request) OverviewData {
 	session, _ := h.SessionStore.Get(r, "goacloud-session")
 	username, _ := session.Values["username"].(string)
 	isAdmin := middleware.GetSessionRole(r, h.SessionStore) == "Admin"
@@ -176,11 +179,32 @@ func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 		InfraHealth:  health,
 		HealthIssues: issues,
 	}
+	return data
+}
 
+func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
+	data := h.computeOverview(r)
 	if err := h.Templates.ExecuteTemplate(w, "overview.html", data); err != nil {
 		slog.Error("Overview template error", "error", err)
 		http.Error(w, "Render error", http.StatusInternalServerError)
 	}
+}
+
+// HandleOverviewData returns the live overview metrics as JSON so the page can
+// refresh its tiles in the background (no full reload). Fast: reads the same
+// caches as the HTML render, no live Proxmox/backup call.
+func (h *Handler) HandleOverviewData(w http.ResponseWriter, r *http.Request) {
+	d := h.computeOverview(r)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"appsUp": d.AppsUp, "appsDown": d.AppsDown, "appsTotal": d.AppsTotal,
+		"proxmoxConfigured": d.ProxmoxConfigured, "cpu": d.CPU, "ram": d.RAM, "storage": d.Storage,
+		"ramUsedStr": d.RAMUsedStr, "ramTotalStr": d.RAMTotalStr,
+		"vmsRunning": d.VMsRunning, "vmsStopped": d.VMsStopped,
+		"wazuhConfigured": d.WazuhConfigured, "wazuhActive": d.WazuhActive, "wazuhDisconnected": d.WazuhDisconnected,
+		"alerts24h": d.Alerts24h, "alerts24hKnown": d.Alerts24hKnown,
+		"health": d.InfraHealth, "issues": d.HealthIssues,
+	})
 }
 
 // HandleOverviewBackups returns the backup coverage summary as JSON. It is loaded
