@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -45,6 +46,9 @@ type OverviewData struct {
 
 	// Derived global health: OK / Dégradé / Critique
 	InfraHealth string
+	// HealthIssues lists the concrete reasons behind a Dégradé/Critique state
+	// (e.g. "CPU à 92%", "1 application hors ligne"). Empty when everything is OK.
+	HealthIssues []string
 }
 
 func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
@@ -115,12 +119,34 @@ func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// --- Derived global health ---
+	// --- Derived global health + concrete reasons ---
 	health := "OK"
 	if stats.CPU >= 90 || stats.RAM >= 90 || stats.Storage >= 90 || down > 0 || crit > 0 {
 		health = "Critique"
 	} else if stats.CPU >= 75 || stats.RAM >= 75 || stats.Storage >= 75 || high > 0 || offline > 0 {
 		health = "Dégradé"
+	}
+	var issues []string
+	if stats.CPU >= 75 {
+		issues = append(issues, fmt.Sprintf("CPU à %d%%", stats.CPU))
+	}
+	if stats.RAM >= 75 {
+		issues = append(issues, fmt.Sprintf("RAM à %d%%", stats.RAM))
+	}
+	if stats.Storage >= 75 {
+		issues = append(issues, fmt.Sprintf("Stockage à %d%%", stats.Storage))
+	}
+	if down > 0 {
+		issues = append(issues, fmt.Sprintf("%d application(s) hors ligne", down))
+	}
+	if offline > 0 {
+		issues = append(issues, fmt.Sprintf("%d agent(s) Wazuh déconnecté(s)", offline))
+	}
+	if crit > 0 {
+		issues = append(issues, fmt.Sprintf("%d vulnérabilité(s) critique(s)", crit))
+	}
+	if high > 0 {
+		issues = append(issues, fmt.Sprintf("%d vulnérabilité(s) haute(s)", high))
 	}
 
 	data := OverviewData{
@@ -146,8 +172,9 @@ func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 		Alerts24h:         alerts24h,
 		Alerts24hKnown:    alertsKnown,
 
-		Favorites:   favorites,
-		InfraHealth: health,
+		Favorites:    favorites,
+		InfraHealth:  health,
+		HealthIssues: issues,
 	}
 
 	if err := h.Templates.ExecuteTemplate(w, "overview.html", data); err != nil {
