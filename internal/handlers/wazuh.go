@@ -14,16 +14,18 @@ import (
 func (h *Handler) HandleWazuh(w http.ResponseWriter, r *http.Request) {
 	// Read the Wazuh Manager API client live from the registry (hot-reloadable).
 	wazuh := h.Registry.Wazuh()
-	if wazuh == nil {
-		http.Error(w, "Wazuh not configured", http.StatusInternalServerError)
-		return
-	}
 
 	h.WazuhCache.Mutex.RLock()
 	agents := h.WazuhCache.Agents
 	h.WazuhCache.Mutex.RUnlock()
 
+	// Serve the cache first (populated in demo mode / by the background worker). Only
+	// require a live client when the cache is empty and we actually need to fetch.
 	if len(agents) == 0 {
+		if wazuh == nil {
+			http.Error(w, "Wazuh not configured", http.StatusInternalServerError)
+			return
+		}
 		var err error
 		agents, err = wazuh.GetAgents()
 		if err != nil {
@@ -150,18 +152,17 @@ func (h *Handler) HandleWazuhGeoData(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleWazuhAgentsRefresh(w http.ResponseWriter, r *http.Request) {
 	// Read the Wazuh Manager API client live from the registry (hot-reloadable).
 	wazuh := h.Registry.Wazuh()
-	if wazuh == nil {
-		http.Error(w, `{"error":"Wazuh not configured"}`, http.StatusInternalServerError)
-		return
-	}
 
-	// Trigger a synchronous update
-	agents, err := wazuh.GetAgents()
-	if err == nil {
-		h.WazuhCache.Mutex.Lock()
-		h.WazuhCache.Agents = agents
-		h.WazuhCache.UpdatedAt = time.Now()
-		h.WazuhCache.Mutex.Unlock()
+	// No live client (e.g. demo mode): just return whatever the cache holds.
+	if wazuh != nil {
+		// Trigger a synchronous update
+		agents, err := wazuh.GetAgents()
+		if err == nil {
+			h.WazuhCache.Mutex.Lock()
+			h.WazuhCache.Agents = agents
+			h.WazuhCache.UpdatedAt = time.Now()
+			h.WazuhCache.Mutex.Unlock()
+		}
 	}
 
 	h.WazuhCache.Mutex.RLock()
