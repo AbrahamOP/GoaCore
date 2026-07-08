@@ -40,9 +40,11 @@ type OllamaClient struct {
 }
 
 type ollamaRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
+	Model   string         `json:"model"`
+	System  string         `json:"system,omitempty"`
+	Prompt  string         `json:"prompt"`
+	Stream  bool           `json:"stream"`
+	Options map[string]any `json:"options,omitempty"`
 }
 
 type ollamaResponse struct {
@@ -66,41 +68,48 @@ func NewOllamaClient(url, model string) *OllamaClient {
 	}
 }
 
+// ollamaSystemPrompt verrouille la langue et le rôle : qwen2.5:3b dérive vers
+// le chinois sans consigne de langue explicite dans le champ system.
+const ollamaSystemPrompt = "Tu es un analyste SOC senior d'un homelab (Proxmox VE, conteneurs LXC, Docker, SIEM Wazuh). Tu réponds TOUJOURS et UNIQUEMENT en français. Tu es concis, factuel, sans bla-bla."
+
 // EnrichAlert sends an alert to Ollama for analysis.
 func (c *OllamaClient) EnrichAlert(ctx context.Context, alertCtx AIAlertContext) (string, error) {
-	prompt := fmt.Sprintf(`Analyse l'alerte de sécurité suivante:
-
-CONTEXTE AGENT:
-- Machine: %s
-- IP: %s
-
-DÉTAILS ALERTE:
+	prompt := fmt.Sprintf(`ALERTE WAZUH:
+- Machine: %s (%s)
+- Règle: %s (niveau %d)
 - Titre: %s
 - Description: %s
-- Règle ID: %s (Niveau %d)
-- IP Source: %s
-- Log Brut: %s
+- IP source: %s
+- Log: %s
 
-TA MISSION:
-Agis comme un expert SOC. Analyse ces données pour déterminer si c'est un faux positif ou une menace réelle.
+Détermine si c'est un faux positif ou une menace réelle en analysant le chemin du fichier et le log.
+- Faux positifs fréquents : fichiers gérés par l'OS (archives LVM, mises à jour apt, backups vzdump, rotation de logs, tâches cron).
+- Signaux de MENACE : fichiers cachés (nom commençant par un point), exécutables dans /tmp ou /dev/shm, noms évoquant du minage ou des outils d'attaque, webshells, modifications de /etc/passwd, /etc/shadow ou authorized_keys.
 
-FORMAT DE RÉPONSE OBLIGATOIRE:
-**Analyse:** [Explication technique concise de ce qui s'est passé]
-**Gravité:** [Faible/Moyenne/Élevée/Critique]
-**Action:** [Action curative immédiate]
+RÈGLE STRICTE : si AU MOINS UN signal de menace est présent, gravité minimum Élevée et action = investigation. Ne rationalise JAMAIS un signal de menace, même si le chemin ressemble à un emplacement système légitime.
 
-Sois direct. Pas de bla-bla.`,
+RÉPONDS EN FRANÇAIS, EXACTEMENT 3 LIGNES:
+**Analyse:** [ce qui s'est passé, 2 phrases max]
+**Gravité:** [Faible|Moyenne|Élevée|Critique] (Faible si faux positif)
+**Action:** [1 action concrète, ou "Aucune — faux positif probable"]`,
 		alertCtx.AgentName, alertCtx.AgentIP,
-		alertCtx.Title, alertCtx.Description,
 		alertCtx.RuleID, alertCtx.RuleLevel,
+		alertCtx.Title, alertCtx.Description,
 		alertCtx.SourceIP,
-		alertCtx.FullLog,
+		truncateForPrompt(alertCtx.FullLog, 1000),
 	)
 
 	reqBody := ollamaRequest{
 		Model:  c.Model,
+		System: ollamaSystemPrompt,
 		Prompt: prompt,
 		Stream: false,
+		// num_predict borne le temps de génération sur CPU (~10-15 tok/s),
+		// temperature basse limite la dérive de langue et de format.
+		Options: map[string]any{
+			"temperature": 0.2,
+			"num_predict": 300,
+		},
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -131,6 +140,16 @@ Sois direct. Pas de bla-bla.`,
 	}
 
 	return cleanAIResponse(ollamaResp.Response), nil
+}
+
+// truncateForPrompt caps s to max runes: le prompt eval est la phase la plus
+// lente sur CPU, un log verbeux ne doit pas gonfler la latence d'enrichissement.
+func truncateForPrompt(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }
 
 func cleanAIResponse(response string) string {
@@ -195,7 +214,7 @@ func NewOpenAIClient(apiKey, model, baseURL string) *OpenAIClient {
 
 // EnrichAlert sends an alert to OpenAI for analysis.
 func (c *OpenAIClient) EnrichAlert(ctx context.Context, alertCtx AIAlertContext) (string, error) {
-	systemPrompt := "Tu es un expert en cybersécurité (SOC Analyst). Ton but est d'analyser les alertes et de fournir des recommandations concises."
+	systemPrompt := "Tu es un expert en cybersécurité (SOC Analyst). Ton but est d'analyser les alertes et de fournir des recommandations concises. Tu réponds toujours et uniquement en français."
 	userPrompt := fmt.Sprintf(`Analyse l'alerte de sécurité suivante:
 Titre: %s
 Détails: %s
